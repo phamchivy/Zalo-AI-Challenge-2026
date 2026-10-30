@@ -1,0 +1,17 @@
+# 1 GPU (1 replica vLLM): giảm song song, bớt mẫu code.
+name: single_gpu
+cache_dir: /tmp/datamate_cache
+workers: 6
+question_concurrency: 24
+time_budget_sec: 19440
+llm:
+  enabled: true
+  base_urls: ["http://127.0.0.1:8000/v1"]
+  model: qwen
+  max_concurrency: 32
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0}
+  - {name: llm_plan, weight: 0.6}
+  - {name: llm_code, weight: 0.5, samples: 1, options: {when: fallback}}
+decision: {min_score: 0.5, min_share: 0.6, unanswerable_min_score: 0.9}

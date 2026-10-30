@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+runs/
+models/
+*.tar.gz
+.pytest_cache/
+venv_datamate/

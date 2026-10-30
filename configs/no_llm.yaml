@@ -1,0 +1,10 @@
+# Chỉ tầng A (không cần GPU) — dùng để dev/regression nhanh trên máy CPU.
+name: no_llm
+cache_dir: /tmp/datamate_cache
+workers: 4
+question_concurrency: 16
+llm: {enabled: false}
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
+decision: {min_score: 0.5, min_share: 0.6, unanswerable_min_score: 0.9}
