@@ -25,7 +25,7 @@ ROLES: dict[str, tuple[str, str, str]] = {
                  r'^(ma (hoa don|don|don hang|chung tu|bill|hd|phieu ban|giao dich)|so (ct|chung tu|hd|hoa don|don|bill|phieu)|order id|orderid|don so|bill|hd|ma bill|invoice( id| no)?|order( no)?)$'),
     'line_no': ('num', r'^so thu tu dong trong don', r'^(stt|so thu tu|no|tt dong|dong|line)$'),
     'date': ('date', r'^(ngay ban|ngay dat|ngay sua)\b', r'^(ngay|ngay ban|ngay thang|ngay dat( hang)?|ngay giao dich|ngay lap|ngay chung tu|ngay hach toan|ngay hd|date|ngayban|ngay tao don|thoi gian( ban)?)$'),
-    'datetime': ('datetime', r'^thoi diem dat don', r'^(thoi gian (lap|tao|tao don|dat)|ngay gio( lap| ban)?|created at|tao luc)$'),
+    'datetime': ('datetime', r'^thoi diem dat don', r'^(thoi gian (lap|tao|tao don|dat|phat sinh)|ngay gio( lap| ban| phat sinh)?|thoi diem( phat sinh)?|ngay phat sinh|created at|tao luc)$'),
     'time': ('time', r'^gio dat don', r'^(gio|gio ban|gio tao don|gio dat|time)$'),
     'status': ('text', r'^trang thai don', r'^((trang thai|tinh trang)( (don|don hang|giao|xu ly|hoa don|ban))?|ket qua|status|xu ly|tien do)$'),
     'customer_code': ('id', r'^ma khach', r'^(ma (kh|khach|khach hang|khach mua)|so kh|customer id|ma kh mua|id khach)$'),
@@ -151,6 +151,7 @@ class TableMapping:
     col_roles: dict[str, str] = field(default_factory=dict)  # column -> role
     evidence: dict[str, str] = field(default_factory=dict)   # role -> 'readme' | 'name' | 'value'
     descs: dict[str, str] = field(default_factory=dict)      # column -> mô tả README (nếu có)
+    uncertain: list[str] = field(default_factory=list)       # role có cột khác ngang điểm mà không được dùng -> không chắc
 
 
 @dataclass
@@ -283,6 +284,7 @@ def map_table(tp: TableProfile, info: ReadmeInfo, extra: dict[str, str]) -> Tabl
     allowed = ALLOWED.get('sales' if ttype.startswith('sales') else ttype)
     tm = TableMapping(table=tp.name, ttype=ttype, descs=descs)
     ren = RENAME.get(ttype, {})
+    best_score: dict[str, float] = {}
     for s, c, role, ev in sorted(cand, key=lambda x: -x[0]):
         if allowed is not None and role not in allowed:
             continue
@@ -292,6 +294,14 @@ def map_table(tp: TableProfile, info: ReadmeInfo, extra: dict[str, str]) -> Tabl
         tm.roles[role] = c
         tm.col_roles[c] = role
         tm.evidence[role] = ev
+        best_score[role] = s
+    # biên độ: cột KHÔNG được gán role nào mà điểm cho role ngang cột đã chọn -> role không chắc
+    for s, c, role, ev in cand:
+        role2 = ren.get(role, role)
+        if (allowed is None or role in allowed) and role2 in tm.roles and c not in tm.col_roles \
+                and s >= best_score.get(role2, 99) - 1e-6 and tm.roles[role2] != c:
+            if role2 not in tm.uncertain:
+                tm.uncertain.append(role2)
     _fix_dates(tm, tp)
     return tm
 

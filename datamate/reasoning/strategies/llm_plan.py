@@ -61,7 +61,7 @@ class LLMPlan(Strategy):
                         group_by=d.get('group_by'), split_by=d.get('split_by'), split_values=d.get('split_values') or [],
                         k=d.get('k'), threshold=d.get('threshold'), threshold_metric=d.get('threshold_metric'),
                         answer_type=AnswerType(at) if at in [x.value for x in AnswerType] else None, source='llm')
-            t, a = Executor(cat.canon, env.kb.rulebook.params).run(plan)
+            t, a = Executor(cat.canon, env.kb.rulebook.params, env.kb.rules).run(plan)
             return [self.cand(program=describe_plan(plan), answer_type=t, answer=a, elapsed=time.time() - t0, tokens=res.tokens)]
         except Unanswerable as e:
             return [self.cand(answer_type=AnswerType.UNANSWERABLE, reason=str(e), weight=self.scfg.weight * 0.5,

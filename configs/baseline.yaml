@@ -27,3 +27,6 @@ decision:
   min_score: 0.5
   min_share: 0.6
   unanswerable_min_score: 0.9
+  calibration_path: configs/calibration.yaml
+  unexplained_factor: [1.0, 0.5, 0.0]
+  type_contract: true

@@ -23,6 +23,7 @@ from datamate.knowledge.base import KnowledgeBase
 from datamate.output.writer import SubmissionWriter
 from datamate.reasoning.strategies.base import Env
 from datamate.understand.entity_link import EntityIndex
+from datamate.understand.expected_type import compatible
 from datamate.understand.pipeline import understand
 
 log = get_logger('orchestrator')
@@ -62,6 +63,8 @@ class Orchestrator:
                   limit: Optional[int] = None, resume: bool = True) -> dict:
         t_start = time.time()
         kb = KnowledgeBase.load(self.split)
+        self.out.mkdir(parents=True, exist_ok=True)
+        (self.out / 'rules.json').write_text(kb.rules.to_json(), encoding='utf-8')   # luật đã đọc (để soát / cho LLM sửa)
         qs = load_questions(self.split / 'questions.jsonl')
         all_ids = [q.id for q in qs]
         if ids:
@@ -110,6 +113,12 @@ class Orchestrator:
                             log.warning('%s strategy crash: %r', q.id, r)
                         else:
                             cands += r
+                    if self.cfg.decision.type_contract:
+                        exp = set(u.ctx.expected_types) if u.ctx.expected_types else None
+                        for c in cands:
+                            if c.status == 'ok' and c.answer_type is not None and not compatible(c.answer_type.value, exp):
+                                c.status = 'error'
+                                c.error = f'type_contract: {c.answer_type.value} not in {sorted(exp)}'
                     d = decide(q.id, cands, self.cfg.decision)
                 except Exception as e:  # noqa: BLE001 - một câu lỗi không làm hỏng cả lần chạy
                     import traceback

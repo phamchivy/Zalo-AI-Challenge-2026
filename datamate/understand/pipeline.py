@@ -9,6 +9,7 @@ from datamate.core.textutil import fold
 from datamate.core.types import QContext, Question
 from datamate.understand import answerability
 from datamate.understand.entity_link import EntityIndex
+from datamate.understand.expected_type import expected_types
 from datamate.understand.intent import ParseResult, parse_question
 from datamate.understand.normalize import qnorm
 from datamate.understand.time_resolver import TimeParse, resolve_time
@@ -27,8 +28,11 @@ def understand(q: Question, catalog, kb, ix: Optional[EntityIndex] = None) -> Un
     tp = resolve_time(qn, q.as_of_date, kb.calendar)
     canon = catalog.canon
     ix = ix or EntityIndex()
-    parse = parse_question(qn, qf, q.as_of_date, tp, ix, canon.caps, canon.date_min, canon.date_max, kb.calendar)
+    parse = parse_question(qn, qf, q.as_of_date, tp, ix, canon.caps, canon.date_min, canon.date_max, kb.calendar,
+                           rules=getattr(kb, 'rules', None))
     ctx = QContext(q=q, fq=qf, norm_question=qn, times=tp.ranges, intent=parse.intent, entities=parse.entities)
+    et = expected_types(qn)
+    ctx.expected_types = sorted(et) if et else None
     reason = answerability.subjective(qn)
     if not reason and parse.plan is not None:
         reason = answerability.out_of_range(parse.plan.periods, canon.date_min, canon.date_max, q.as_of_date)

@@ -23,7 +23,7 @@ from datamate.data.readme import ReadmeInfo, parse_readme
 from datamate.data.schema_mapper import BusinessMapping, map_business
 
 log = get_logger('catalog')
-CACHE_VERSION = 'v1.0'
+CACHE_VERSION = 'v1.1'
 
 
 def _code_version() -> str:
@@ -77,6 +77,7 @@ class BusinessCatalog:
             'lines': len(c.lines), 'orders': len(c.orders), 'products': len(c.products),
             'caps': sorted(c.caps), 'date_min': str(c.date_min), 'date_max': str(c.date_max),
             'notes': c.notes, 'build_sec': round(self.build_sec, 2), 'errors': self.errors,
+            'health': getattr(c, 'health', {}),
         }
 
 

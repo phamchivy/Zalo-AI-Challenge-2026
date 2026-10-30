@@ -1,0 +1,16 @@
+# Lần chạy "thô" để hiệu chỉnh: tầng A trả lời MỌI câu có plan (min_score 0), không dùng calibration.
+# Dùng trên TRAIN rồi: python -m datamate.runtime.main calibrate --split <train> --run <out> --out configs/calibration.yaml
+name: no_llm_raw
+cache_dir: /tmp/datamate_cache
+workers: 4
+question_concurrency: 16
+llm: {enabled: false}
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
+decision:
+  min_score: 0.0
+  min_share: 0.0
+  unanswerable_min_score: 0.9
+  calibration_path: null
+  type_contract: true

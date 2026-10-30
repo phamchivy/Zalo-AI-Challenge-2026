@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from datamate.core.textutil import fold
+from datamate.knowledge.rules import RuleSet, compile_rules
 
 
 @dataclass
@@ -30,6 +31,7 @@ class Rulebook:
     text: str = ''
     sections: dict[str, str] = field(default_factory=dict)
     params: RuleParams = field(default_factory=RuleParams)
+    rules: RuleSet = field(default_factory=RuleSet)          # luật nghiệp vụ dạng dữ liệu (knowledge/rules.py)
 
     def section(self, *keywords: str, max_chars: int = 4000) -> str:
         out = []
@@ -42,7 +44,7 @@ class Rulebook:
 def load_rulebook(path: str | Path) -> Rulebook:
     p = Path(path)
     text = p.read_text(encoding='utf-8') if p.exists() else ''
-    rb = Rulebook(text=text)
+    rb = Rulebook(text=text, rules=compile_rules(text))
     cur, buf = None, []
     for line in text.splitlines():
         if line.startswith('## ') or line.startswith('### '):

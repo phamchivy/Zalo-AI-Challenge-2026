@@ -1,10 +1,11 @@
-# Kiến trúc v1 — hợp đồng dữ liệu & điểm mở rộng
+# Kiến trúc v1.1 — hợp đồng dữ liệu & điểm mở rộng
 
 ## 1. Luồng một lần chạy
 
 ```
 predict --split S --out O
- ├─ KnowledgeBase.load(S)                 rulebook.md (nguyên văn + tham số ca/Tết), calendar.csv
+ ├─ KnowledgeBase.load(S)                 rulebook.md -> nguyên văn + RuleSet (rules.json: knobs, rankings, unknown)
+ │                                         + override <S>/rules.json hoặc $DATAMATE_RULES (LLM/người điền), calendar.csv
  ├─ build_all(S/data, biz, cache)         process pool; cache pickle theo (hash code tầng data + kích thước/mtime file)
  │    raw_loader → profiler → schema_mapper(README + tên cột + giá trị) → canonical → BusinessCatalog
  ├─ EntityIndex.from_catalog              tên hàng/khách/nhóm/kênh/thanh toán/nhân viên có trong dữ liệu
@@ -44,13 +45,23 @@ lấy năm của sheet/file · số lượng âm / bảng trả hàng / SL trả
 mỗi role 1 cột / bảng; `classify_table` theo tên bảng + tập role; `RENAME` đổi role chung theo loại bảng
 (vd `qty` ở bảng nhập → `p_qty`). Thêm từ đồng nghĩa = sửa regex, chạy `main build -v` để xem lại toàn bộ shop.
 
-## 5. Bỏ phiếu (configs/*.yaml → decision)
-Trọng số mặc định: guard 1.0 · rule_plan 1.0 × confidence(0.45–0.9) · llm_plan 0.6 · llm_code 0.5/mẫu.
-Trả lời khi `support ≥ min_score (0.5)` và `support/total ≥ min_share (0.6)`; unanswerable cần `≥ 0.9`.
-`confidence` của rule giảm khi câu có từ lạ không khớp được (`unexplained`) → tự gọi tầng B kiểm chéo.
-Tối ưu các ngưỡng này bằng PA trên train (không sửa code).
+## 5. Luật dạng dữ liệu (knowledge/rules.py) — v1.1
+`compile_rules(rulebook)` tách bảng luật thành câu (mục, tên luật, nội dung) rồi khớp với `KNOBS`
+(mỗi knob = key, giá trị, regex tên luật, mọi regex nội dung phải khớp):
+* knob khớp -> giá trị; không khớp (rulebook không nói / nói khác) -> `None` -> intent cần knob đó **bỏ trống**;
+* câu trong mục xếp hạng có dạng "<đối tượng> <tính từ> nhất | ... nhiều X nhất" -> `RankingDef(phrase, entity, metric, min_orders)`;
+* câu không khớp gì -> `unknown` (luật lạ) với `keys` = cụm từ nội dung của tên luật; câu hỏi chứa đủ cụm -> bỏ trống.
+Executor khai báo knob + năng lực dữ liệu cho từng Plan (`Executor.requirements`), thiếu -> `RuleMissing`.
+Thêm luật mới = thêm 1 dòng `K(...)` + đọc `self.r.get(key)` trong executor; LLM có thể điền cùng schema vào `rules.json`.
 
-## 6. Việc tiếp theo (v1.1) theo người
+## 6. Bỏ phiếu & độ tin cậy (configs/*.yaml → decision)
+Trọng số: guard 1.0 · rule_plan = base(intent) × f_từ_lạ × f_sức_khoẻ · llm_plan 0.6 · llm_code 0.5/mẫu.
+`base(intent)` = cận dưới Wilson của độ chính xác out-of-fold trên train (`configs/calibration.yaml`, sinh bởi `main calibrate`),
+chưa có file -> prior của parser. `f_từ_lạ` = [1, 0.5, 0] theo số từ lạ; `f_sức_khoẻ` theo `canon.health`
+(lệch đối chiếu dòng hàng/đơn...). Trả lời khi `support ≥ min_score` (no_llm: 0.8 = độ chính xác tối thiểu) và
+`support/total ≥ min_share`. Trước khi bỏ phiếu: **hợp đồng kiểu** (`understand/expected_type.py`) loại candidate lệch kiểu.
+
+## 7. Việc tiếp theo theo người
 
 **Data engineer — `data/`**
 - Chạy `main build --split train -v` và `--split public_test -v`, soát role/loại bảng của từng shop; ghi lại shop sai vào test.

@@ -36,6 +36,13 @@ class DecisionConfig(BaseModel):
     min_score: float = 0.5                      # tổng trọng số ủng hộ tối thiểu để trả lời
     min_share: float = 0.6                      # tỉ lệ trọng số ủng hộ / tổng trọng số candidate hợp lệ
     unanswerable_min_score: float = 0.9         # unanswerable cần chắc hơn (sai = -1)
+    # v1.1 — độ tin cậy tầng A theo đặc trưng (decision/calibration.py)
+    calibration_path: Optional[str] = None      # file sinh bởi `main calibrate` (độ chính xác out-of-fold theo intent)
+    unexplained_factor: list[float] = Field(default_factory=lambda: [1.0, 0.5, 0.0])   # 0 / 1 / >=2 từ lạ
+    health_factor: dict[str, float] = Field(default_factory=lambda: {'recon_mismatch': 0.5, 'header_rows': 1.0,
+                                                                     'duplicate_sources': 1.0})
+    recon_mismatch_max: float = 0.2             # tỉ lệ đơn lệch (dòng hàng vs tiền hàng của đơn) tối đa coi là khoẻ
+    type_contract: bool = True                  # loại candidate lệch kiểu so với dạng câu hỏi
 
 
 class Config(BaseModel):

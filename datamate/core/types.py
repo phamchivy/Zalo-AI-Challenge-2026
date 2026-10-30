@@ -78,6 +78,7 @@ class QContext(BaseModel):
     intent: str = 'unknown'
     entities: dict[str, Any] = Field(default_factory=dict)      # product/customer/category... đã khớp vào dữ liệu
     unanswerable_reason: Optional[str] = None
+    expected_types: Optional[list[str]] = None  # hợp đồng kiểu đáp án suy từ dạng câu hỏi (None = không ràng buộc)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -94,6 +95,7 @@ class Candidate(BaseModel):
     reason: Optional[str] = None
     elapsed: float = 0.0
     tokens: int = 0
+    meta: dict[str, Any] = Field(default_factory=dict)      # đặc trưng độ tin cậy, luật thiếu... (để hiệu chỉnh)
 
 
 class Decision(BaseModel):

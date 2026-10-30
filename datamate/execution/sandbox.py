@@ -39,7 +39,9 @@ def write_pack(cat, cache_dir: str) -> str:
     pack = {
         'tables': {n: t.df for n, t in cat.raw.items() if t.kind != 'error'},
         'canon': {'lines': c.lines, 'orders': c.orders, 'products': c.products, 'units': c.units,
-                  'customers': c.customers, 'payments': c.payments, 'purchases': c.purchases},
+                  'customers': c.customers, 'payments': c.payments, 'purchases': c.purchases,
+                  'stock': getattr(c, 'stock', None), 'prices': getattr(c, 'prices', None), 'lots': getattr(c, 'lots', None),
+                  'lot_sales': getattr(c, 'lot_sales', None), 'deliveries': getattr(c, 'deliveries', None)},
         'meta': {'business_id': cat.business_id, 'data_min': str(c.date_min), 'data_max': str(c.date_max),
                  'caps': sorted(c.caps)},
     }

@@ -1,4 +1,6 @@
-# Chỉ tầng A (không cần GPU) — dùng để dev/regression nhanh trên máy CPU.
+# Chỉ tầng A (không cần GPU), precision-first.
+# decision.min_score = độ chính xác tối thiểu để tầng A tự trả lời (trọng số candidate = độ tin cậy đã hiệu chỉnh).
+# calibration.yaml sinh bằng: predict (configs/no_llm_raw.yaml) trên train -> main calibrate. Chưa có file -> dùng prior.
 name: no_llm
 cache_dir: /tmp/datamate_cache
 workers: 4
@@ -7,4 +9,12 @@ llm: {enabled: false}
 strategies:
   - {name: guard, weight: 1.0}
   - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
-decision: {min_score: 0.5, min_share: 0.6, unanswerable_min_score: 0.9}
+decision:
+  min_score: 0.8
+  min_share: 0.6
+  unanswerable_min_score: 0.9
+  calibration_path: configs/calibration.yaml
+  unexplained_factor: [1.0, 0.5, 0.0]
+  health_factor: {recon_mismatch: 0.5, header_rows: 1.0, duplicate_sources: 1.0}
+  recon_mismatch_max: 0.2
+  type_contract: true

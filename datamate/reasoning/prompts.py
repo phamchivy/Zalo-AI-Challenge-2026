@@ -21,7 +21,12 @@ canon['units'] — product_key, unit_f, factor (số đơn vị cơ bản trong 
 canon['payments'] — order_id, pay_date, amount, method (mỗi lần khách trả tiền)
 canon['purchases'] — dòng nhập: receipt_no, p_date, supplier, product_key, product_name, p_qty, p_unit, p_unit_cost,
   p_amount, p_total (tổng phiếu), p_status, p_cancelled
-Đơn hợp lệ (tính doanh thu, số đơn, bán chạy): status in ('completed','shipping') và not is_nonproduct.
+canon['stock'] — thẻ kho: product_key, ts (thời điểm), balance (tồn sau phát sinh, đơn vị cơ bản), seq
+canon['prices'] — lịch sử giá: product_key, eff_date, price
+canon['lots'] — lô: lot, product_key, expiry, received_base, unit_cost_base, recv_date; canon['lot_sales'] — order_id, lot, qty_base, return_qty
+canon['deliveries'] — đợt giao: order_id, deliv_date, deliv_no
+Bảng có thể rỗng nếu shop không ghi. Đơn nào tính doanh thu / số đơn, làm tròn, tiêu chí xếp hạng... lấy theo RULEBOOK của
+split này (không giả định theo bộ khác); status đã chuẩn hoá về 4 giá trị ở trên. Dòng is_nonproduct không phải hàng.
 Nếu canon thiếu thông tin hoặc có vẻ sai, dùng tables (bảng gốc, mọi ô là chuỗi: dùng to_num/parse_date)."""
 
 CODE_SYSTEM = """Bạn là chuyên gia phân tích dữ liệu bán hàng của cửa hàng nhỏ Việt Nam. Viết MỘT đoạn code Python (pandas) \

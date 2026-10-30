@@ -61,6 +61,8 @@ def qnorm(text: str) -> str:
     # tách dấu câu (giữ / - . , % : trong số)
     t = re.sub(r'(?<!\d)[.,;!?](?!\d)', ' ', t)
     t = re.sub(r'[\"\'“”()\[\]{}]', ' ', t)
+    # 'tang/giam', 'cao/thap' -> 'tang hoac giam' (dấu / giữa hai chữ; '8/2025' giữ nguyên)
+    t = re.sub(r'(?<=[a-z]{2})\s*/\s*(?=[a-z]{2})', ' hoac ', t)
     toks = t.split()
     toks = [x if x in TEEN else telex_fix(x) for x in toks]
     out = []

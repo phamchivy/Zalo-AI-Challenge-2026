@@ -24,6 +24,7 @@ import pandas as pd
 from datamate.core.textutil import customer_key, fold, is_walkin, parse_date, parse_time, strip_phone, to_num, year_from_text
 from datamate.data.raw_loader import RawTable
 from datamate.data.readme import ReadmeInfo, convention_flags
+from datamate.data.sanity import amount_is_gross, clean_line_frame, dedupe_sources, is_summary_label, reconcile
 from datamate.data.schema_mapper import BusinessMapping, TableMapping
 from datamate.data.vocab import is_nonproduct, is_service_fee, norm_payment, norm_status, status_from_note
 
@@ -48,6 +49,13 @@ class Canonical:
     notes: list[str] = field(default_factory=list)
     date_min: Optional[date] = None
     date_max: Optional[date] = None
+    # v1.1: bảng cho khối tính chung + sức khoẻ dữ liệu
+    stock: pd.DataFrame = field(default_factory=pd.DataFrame)        # product_key, ts, balance, seq (thẻ kho: tồn sau mỗi phát sinh)
+    prices: pd.DataFrame = field(default_factory=pd.DataFrame)       # product_key, eff_date, price
+    lots: pd.DataFrame = field(default_factory=pd.DataFrame)         # lot, product_key, expiry, received_base, unit_cost_base, recv_date
+    lot_sales: pd.DataFrame = field(default_factory=pd.DataFrame)    # order_id, lot, qty_base, return_qty
+    deliveries: pd.DataFrame = field(default_factory=pd.DataFrame)   # order_id, deliv_date, deliv_no
+    health: dict = field(default_factory=dict)
 
 
 # ----------------------------------------------------------------------------- vector helpers
@@ -124,13 +132,27 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
     line_maps = bm.of_type('sales_flat', 'sales_lines')
     order_maps = bm.of_type('sales_orders')
 
-    # ---- 1. dòng hàng
-    parts = []
+    health: dict = {'summary_label_rows': 0, 'header_rows': 0, 'uncertain_roles': []}
+    # ---- 1. dòng hàng (bỏ dòng tổng, đánh dấu dòng tiêu đề nhóm, bỏ bảng trùng nguồn)
+    parts, pnames = [], []
     for m in line_maps:
         f = _frame(raw[m.table], m)
         if f.empty:
             continue
+        f, rep = clean_line_frame(f)
+        for k_, v_ in rep.items():
+            health[k_] += v_
+        for r_ in getattr(m, 'uncertain', []):
+            if r_ not in health['uncertain_roles']:
+                health['uncertain_roles'].append(r_)
         parts.append(f)
+        pnames.append(m.table)
+    if len(parts) > 1:
+        parts, dn = dedupe_sources(parts, pnames)
+        notes += dn
+        health['duplicate_sources'] = len(dn)
+    if health['summary_label_rows'] or health['header_rows']:
+        notes.append(f"summary rows dropped: {health['summary_label_rows']}, header rows (no product, no qty): {health['header_rows']}")
     L = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     O_raw = None
     if order_maps:
@@ -146,6 +168,14 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
                 best, best_ov = m, score
         if best is not None:
             O_raw = _frame(raw[best.table], best)
+            lab = pd.Series(False, index=O_raw.index)
+            for c_ in ('order_id', 'customer_name', 'date', 'note'):
+                if c_ in O_raw.columns:
+                    lab |= O_raw[c_].map(is_summary_label)
+            if lab.any():
+                O_raw = O_raw[~lab]
+                notes.append(f'orders table summary rows dropped: {int(lab.sum())}')
+            O_raw = O_raw[O_raw['order_id'].notna()] if O_raw['order_id'].notna().mean() > 0.3 else O_raw
             notes.append(f'orders table = {best.table}')
     if L.empty and O_raw is None:
         return _empty(notes + ['no sales table'])
@@ -285,11 +315,19 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
             L['amount'] = L['qty'] * L['unit_price'] - L.get('line_discount', 0).fillna(0) if 'line_discount' in L.columns else L['qty'] * L['unit_price']
             notes.append('amount = qty*price')
     L['amount'] = L['amount'].fillna(0.0) if 'amount' in L.columns else 0.0
+    if amount_is_gross(L):
+        # cột "thành tiền" là tiền trước giảm dòng -> canonical amount = sau giảm dòng (giữ bản gốc ở amount_gross)
+        L['amount_gross'] = L['amount']
+        L['amount'] = L['amount'] - L['line_discount'].fillna(0)
+        notes.append('amount column was gross: subtract line discount')
 
     # ---- 7. dòng không phải hàng / phí phục vụ
     pn = L['product_name'] if 'product_name' in L.columns else pd.Series([None] * len(L), index=L.index, dtype=object)
     L['is_service'] = _map_unique(pn, is_service_fee).fillna(False).astype(bool) if len(L) else False
     L['is_nonproduct'] = _map_unique(pn, is_nonproduct).fillna(False).astype(bool) if len(L) else False
+    if '__header__' in L.columns:
+        L['is_nonproduct'] = L['is_nonproduct'] | L['__header__'].fillna(False).astype(bool)
+        L = L.drop(columns=['__header__'])
 
     # ---- 8. trả hàng: số lượng âm / bảng trả / cột SL trả -> cả đơn là đơn trả
     returned_ids: set = set()
@@ -358,8 +396,18 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
         sc = purchases['supplier_code'].map(lambda x: suppliers.get(x) if _nn(x) else None)
         purchases['supplier'] = purchases['supplier'].fillna(sc) if 'supplier' in purchases.columns else sc
 
+    # ---- 11b. bảng cho khối tính chung (thẻ kho, lịch sử giá, lô, giao hàng)
+    stock = _build_stock(raw, bm, products)
+    prices = _build_prices(raw, bm, products)
+    lots, lot_sales = _build_lots(raw, bm, products, purchases, units)
+    deliveries = _build_deliveries(raw, bm)
+    health.update(reconcile(L, orders if O_all is not None else None))
+
     # ---- 12. capabilities
     caps = set()
+    for nm, df_ in (('stock', stock), ('prices', prices), ('lots', lots), ('deliveries', deliveries)):
+        if df_ is not None and not df_.empty:
+            caps.add(nm)
     if real_order_id:
         caps.add('orders')
     if 'status_raw' in L.columns or 'status from note' in ' '.join(notes):
@@ -390,7 +438,8 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
     if info.data_end and (dmax is None or info.data_end > dmax):
         dmax = info.data_end
     return Canonical(lines=L, orders=orders, products=products, units=units, customers=customers, payments=payments,
-                     purchases=purchases, suppliers=suppliers, caps=caps, notes=notes, date_min=dmin, date_max=dmax)
+                     purchases=purchases, suppliers=suppliers, caps=caps, notes=notes, date_min=dmin, date_max=dmax,
+                     stock=stock, prices=prices, lots=lots, lot_sales=lot_sales, deliveries=deliveries, health=health)
 
 
 def _empty(notes):
@@ -594,3 +643,114 @@ def _build_purchases(raw, bm, products) -> pd.DataFrame:
     else:
         Lp['p_cancelled'] = False
     return Lp.drop(columns=[c for c in Lp.columns if c.startswith('__')])
+
+
+# ----------------------------------------------------------------------------- v1.1: kho, giá, lô, giao hàng
+def _pkey(df: pd.DataFrame, products: pd.DataFrame) -> Optional[pd.Series]:
+    name2key = dict(zip(products['name_f'], products['product_key'])) if products is not None and not products.empty else {}
+    if 'product_code' in df.columns and df['product_code'].notna().any():
+        return _str(df['product_code']).map(lambda x: fold(x) if x else None)
+    if 'product_name' in df.columns:
+        return _str(df['product_name']).map(lambda x: name2key.get(fold(x), fold(x)) if x else None)
+    return None
+
+
+def _build_stock(raw, bm, products) -> pd.DataFrame:
+    """Thẻ kho dạng 'tồn sau mỗi phát sinh' (cột tồn cuối + thời điểm). Bảng không có thời điểm -> bỏ (không đoán)."""
+    parts = []
+    for m in bm.of_type('inventory'):
+        f = _frame(raw[m.table], m)
+        tcol = next((c for c in ('inv_datetime', 'datetime', 'date') if c in f.columns), None)
+        if 'stock' not in f.columns or tcol is None:
+            continue
+        pk = _pkey(f, products)
+        if pk is None:
+            continue
+        ts = pd.to_datetime(_str(f[tcol]), errors='coerce', dayfirst=False)
+        out = pd.DataFrame({'product_key': pk, 'ts': ts, 'balance': _num(f['stock']), 'seq': range(len(f))})
+        parts.append(out.dropna(subset=['product_key', 'ts', 'balance']))
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
+def _build_prices(raw, bm, products) -> pd.DataFrame:
+    parts = []
+    for m in bm.of_type('price_history'):
+        f = _frame(raw[m.table], m)
+        if 'eff_date' not in f.columns or 'new_price' not in f.columns:
+            continue
+        pk = _pkey(f, products)
+        if pk is None:
+            continue
+        parts.append(pd.DataFrame({'product_key': pk, 'eff_date': _dates(f['eff_date']), 'price': _num(f['new_price'])})
+                     .dropna(subset=['product_key', 'eff_date', 'price']))
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
+def _build_lots(raw, bm, products, purchases, units) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Lô: bảng có (mã lô, hạn dùng, hàng); phân bổ bán theo lô: bảng có (mã đơn, mã lô, SL)."""
+    master, sales = [], []
+    for m in bm.of_type('lots', 'purchases'):
+        f = _frame(raw[m.table], m)
+        if 'lot' not in f.columns:
+            continue
+        if 'expiry' in f.columns and ({'product_code', 'product_name'} & set(f.columns)) and 'order_id' not in f.columns:
+            pk = _pkey(f, products)
+            qcol = next((c for c in ('p_qty_base', 'qty_base') if c in f.columns), None)
+            if m.ttype == 'purchases' or qcol is None:
+                continue                       # dòng nhập có mã lô: dùng để tra đơn vị nhập, không làm bảng lô chính
+            d = pd.DataFrame({'lot': _str(f['lot']), 'product_key': pk, 'expiry': _dates(f['expiry']),
+                              'received_base': _num(f[qcol]),
+                              'unit_cost': _num(f['p_unit_cost']) if 'p_unit_cost' in f.columns else np.nan,
+                              'receipt_no': _str(f['receipt_no']) if 'receipt_no' in f.columns else None})
+            master.append(d)
+        elif 'order_id' in f.columns and 'qty_base' in f.columns:
+            sales.append(pd.DataFrame({'order_id': _str(f['order_id']), 'lot': _str(f['lot']), 'qty_base': _num(f['qty_base']),
+                                       'return_qty': _num(f['return_qty']) if 'return_qty' in f.columns else 0.0}))
+    if not master:
+        return pd.DataFrame(), pd.DataFrame()
+    Lt = pd.concat(master, ignore_index=True).dropna(subset=['lot']).drop_duplicates('lot')
+    Lt['recv_date'] = None
+    Lt['unit_cost_base'] = np.nan
+    if purchases is not None and not purchases.empty:
+        pu = purchases
+        if 'receipt_no' in pu.columns and 'p_date' in pu.columns:
+            rd = pu.dropna(subset=['receipt_no']).drop_duplicates('receipt_no').set_index('receipt_no')['p_date']
+            Lt['recv_date'] = Lt['receipt_no'].map(rd)
+        # giá nhập của lô theo đơn vị nào? đối chiếu với dòng phiếu nhập cùng mã lô (giá theo đơn vị nhập):
+        #   lot_cost ≈ line_cost / hệ số  -> đã theo đơn vị cơ bản;  lot_cost ≈ line_cost -> theo đơn vị nhập, chia hệ số.
+        fac = {(k, u): f for k, u, f in units[['product_key', 'unit_f', 'factor']].itertuples(index=False)} if not units.empty else {}
+        link = {}
+        if 'lot' in pu.columns and 'p_unit' in pu.columns and 'p_unit_cost' in pu.columns:
+            q = pu.assign(lot=_str(pu['lot'])).dropna(subset=['lot']).drop_duplicates('lot')
+            link = {r.lot: (r.p_unit, r.p_unit_cost) for r in q[['lot', 'p_unit', 'p_unit_cost']].itertuples(index=False)}
+
+        def per_base(row):
+            c = row['unit_cost']
+            if c != c:
+                return np.nan
+            u, lc = link.get(row['lot'], (None, None))
+            f = fac.get((row['product_key'], fold(u))) if u else None
+            if f is None and u is not None:
+                f = 1.0
+            if f and lc == lc and lc is not None:
+                if abs(lc / f - c) <= max(0.5, 0.005 * c):
+                    return c
+                if abs(lc - c) <= max(0.5, 0.005 * c):
+                    return c / f
+                return np.nan                       # không nhất quán -> không đoán
+            return c                                # bảng lô ghi SL theo đơn vị cơ bản, không có dòng nhập đối chiếu
+        Lt['unit_cost_base'] = Lt.apply(per_base, axis=1)
+    LS = pd.concat(sales, ignore_index=True) if sales else pd.DataFrame()
+    return Lt.reset_index(drop=True), LS
+
+
+def _build_deliveries(raw, bm) -> pd.DataFrame:
+    parts = []
+    for m in bm.of_type('deliveries'):
+        f = _frame(raw[m.table], m)
+        if 'deliv_date' not in f.columns:
+            continue
+        parts.append(pd.DataFrame({'order_id': _str(f['order_id']) if 'order_id' in f.columns else None,
+                                   'deliv_date': _dates(f['deliv_date']),
+                                   'deliv_no': _str(f['deliv_no']) if 'deliv_no' in f.columns else None}))
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()

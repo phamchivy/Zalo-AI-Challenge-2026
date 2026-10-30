@@ -48,6 +48,35 @@ ROWS = [
     ('O7', '01/07/2025', 'Hoàn thành', 'Khách lẻ', 'Coca lon', 'lon', '1', '10,000', '10,000'),
 ]
 
+# Rulebook tổng hợp tối thiểu cho fixture (đúng dạng bảng luật của đề) — tầng A chỉ trả lời khi luật được xác nhận.
+RULEBOOK = """# Rulebook test
+
+## 1. Đơn hàng và doanh thu
+| Luật | Mặc định |
+|---|---|
+| Đơn tính vào doanh thu | đơn **không huỷ** và **không trả hàng**. Đơn có trả hàng, **kể cả chỉ trả một phần**, là đơn trả hàng: bỏ **cả đơn**. Đơn đang giao vẫn tính |
+| Đơn thuộc kỳ nào | theo **ngày đặt**, không theo ngày giao hay ngày thu tiền |
+| Đơn bị huỷ | đơn có trạng thái huỷ. Đơn trả hàng **không** phải đơn huỷ |
+| Số đơn | chỉ tính đơn không huỷ, không trả; cả khi đếm số đơn có một mặt hàng |
+| Doanh thu một đơn | tổng **thành tiền các dòng hàng** (đã trừ giảm giá trên từng dòng). **Không** trừ giảm giá trên cả đơn, **không** cộng thuế VAT, **không** gồm phí giao hàng |
+| Tỉ lệ đơn huỷ trong kỳ | phần trăm đơn huỷ trong **mọi đơn đặt trong kỳ** (theo ngày đặt, **mọi trạng thái**) |
+
+## 2. Thời gian
+| Cách nói | Nghĩa |
+|---|---|
+| Ca sáng, ca chiều | theo giờ tạo đơn: ca sáng 06:00–13:59, ca chiều 14:00–21:59 |
+
+## 3. Xếp hạng
+| Luật | Mặc định |
+|---|---|
+| Mặt hàng | Dòng **Phí phục vụ** không phải mặt hàng: không xếp hạng, không đếm |
+| Bán chạy | theo **số lượng quy về đơn vị cơ bản**, không theo số dòng hay số tiền |
+| Bán được bao nhiêu <đơn vị> | cộng số lượng quy về đơn vị cơ bản của các mặt hàng **có đơn vị cơ bản là <đơn vị>** |
+| Xác định khách | Shop có mã khách: mỗi **mã khách** là một khách; đơn không ghi mã (**khách lẻ**) không phải khách. Khách mua **nhiều tiền** nhất xếp theo doanh thu (§1). |
+| Giá trị trung bình một đơn | làm tròn về đồng, nửa đồng làm tròn lên |
+| Khách trung thành nhất | khách có **nhiều ngày có mua nhất** trong kỳ |
+"""
+
 QUESTIONS = [
     ('t1', 'doanh thu tháng 6/2025 là bao nhiêu', '2025-07-31', 'number', 340000),
     ('t2', 'tháng 6/2025 có bao nhiêu đơn', '2025-07-31', 'number', 4),
@@ -72,7 +101,7 @@ def mini_split(tmp_path_factory):
         w = csv.writer(f)
         w.writerow(['Mã đơn', 'Ngày', 'Trạng thái', 'Khách', 'Tên hàng', 'ĐVT', 'SL', 'Đơn giá', 'Thành tiền'])
         w.writerows(ROWS)
-    (root / 'rulebook.md').write_text('# Rulebook test\n## 2. Thời gian\nCa sáng, ca chiều: ca sáng 06:00–13:59, ca chiều 14:00–21:59\n', encoding='utf-8')
+    (root / 'rulebook.md').write_text(RULEBOOK, encoding='utf-8')
     (root / 'calendar.csv').write_text('date,weekday,lunar_day,lunar_month,lunar_year,lunar_leap,holiday\n', encoding='utf-8')
     with open(root / 'questions.jsonl', 'w', encoding='utf-8') as fq, open(root / 'answers.jsonl', 'w', encoding='utf-8') as fa:
         for qid, q, asof, t, a in QUESTIONS:

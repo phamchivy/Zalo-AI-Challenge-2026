@@ -1,4 +1,4 @@
-# DataMate v1 — Zalo AI Challenge 2026
+# DataMate v1.1 — Zalo AI Challenge 2026
 
 Agent trả lời câu hỏi tiếng Việt trên dữ liệu bán hàng của cửa hàng nhỏ (csv / xlsx / sqlite + README), chạy offline,
 một container, LLM ≤ 15B qua vLLM. Chấm bằng Penalized Accuracy (+1 / −1 / 0) nên hệ thống **chỉ trả lời khi đủ chắc**.
@@ -29,6 +29,9 @@ calendar.csv ────┘        │
   Code chạy trong tiến trình con có timeout, RAM giới hạn.
 * Không có luật nào gắn với `business_id` hay `question_id` (cấm hardcode). Ánh xạ cột dựa trên **từ điển cột trong README**
   (bộ đề dùng từ vựng mô tả thống nhất) + đồng nghĩa tên cột + kiểm chứng bằng giá trị.
+* **v1.1 — luật tách khỏi code**: luật nghiệp vụ đọc từ `rulebook.md` của split đang chạy thành `rules.json`
+  (`knowledge/rules.py`). Luật không xác nhận được -> intent bỏ trống; câu chạm "luật lạ" -> bỏ trống; xếp hạng theo định nghĩa
+  của rulebook. Độ tin cậy tầng A hiệu chỉnh out-of-fold trên train (`main calibrate`). Chi tiết: `docs/CHANGELOG_v1.1.md`.
 
 ## Cấu trúc thư mục & người phụ trách
 
@@ -54,7 +57,14 @@ calendar.csv ────┘        │
 pip install -r requirements.txt
 python -m pytest -q tests                                   # test không cần GPU
 
-# Tầng A trên train (CPU, vài phút) + chấm
+# Luật đọc được từ rulebook của một split (kiểm tra trước khi chạy)
+python -m datamate.runtime.main rules --split /path/public_test
+
+# Hiệu chỉnh tầng A trên train: chạy "thô" rồi đo độ chính xác out-of-fold theo intent
+python -m datamate.runtime.main predict --split /path/train --out runs/raw --config configs/no_llm_raw.yaml --eval --fresh
+python -m datamate.runtime.main calibrate --split /path/train --run runs/raw --out configs/calibration.yaml
+
+# Tầng A trên train (CPU, vài phút) + chấm (dùng configs/calibration.yaml nếu có)
 python -m datamate.runtime.main predict --split /path/train --out runs/a --config configs/no_llm.yaml --eval --fresh
 
 # Đầy đủ (cần vLLM đang chạy, xem docs/DEPLOY.md)
