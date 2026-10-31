@@ -1,4 +1,4 @@
-# DataMate v1.3 — Zalo AI Challenge 2026
+# DataMate v2.0 — Zalo AI Challenge 2026
 
 Agent trả lời câu hỏi tiếng Việt trên dữ liệu bán hàng của cửa hàng nhỏ (csv / xlsx / sqlite + README), chạy offline,
 một container, LLM ≤ 15B qua vLLM. Chấm bằng Penalized Accuracy (+1 / −1 / 0) nên hệ thống **chỉ trả lời khi đủ chắc**.
@@ -35,6 +35,10 @@ calendar.csv ────┘        │
 * **v1.2 — đo tổng quát bằng holdout**: train chia dev / holdout (`configs/split.yaml`); chỉ sửa code theo lỗi của dev, holdout
   chỉ cho 1 con số PA. Sửa tầng dữ liệu theo cấu trúc (tiền viết tắt, tên cột có đơn vị, sổ quỹ, đơn theo STT, giảm cấp đơn)
   và cổng câu hỏi (điều kiện thanh toán / thuộc tính không nối được -> bỏ trống). Chi tiết: `docs/CHANGELOG_v1.2.md`.
+* **v2.0 — agent nhiều bước**: câu tầng A chưa chắc được chuyển cho LLM. LLM viết code → chạy trong kernel Python giữ
+  trạng thái → đọc kết quả, tối đa 8 lượt, 4 lời giải theo 4 hướng (pandas / SQL / bảng gốc / tự kiểm tra), bỏ phiếu cùng tầng A.
+  Thêm ghi chú về shop (v2.1), luật liên quan (v2.2), chọn ngưỡng trên dev (`main sweep`, v2.3). Chạy trên GPU:
+  `docs/V2_RUNBOOK.md`; chi tiết: `docs/CHANGELOG_v2.0.md`.
 * **v1.3 — không bám từ vựng train**: bộ phạt "từ lạ" chỉ còn tính dấu hiệu thực thể chưa nối (tên riêng, token chữ+số, cụm có
   trong tên hàng / tên khách của chính shop); chuẩn hoá chat và phương ngữ chung. Chi tiết: `docs/CHANGELOG_v1.3.md`.
 

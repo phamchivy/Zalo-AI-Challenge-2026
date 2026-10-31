@@ -26,7 +26,32 @@ def _cfg(args):
     over = {}
     if getattr(args, 'no_llm', False):
         over['llm'] = {'enabled': False}
-    return load_config(args.config, over)
+    cfg = load_config(args.config, over)
+    for kv in getattr(args, 'set', None) or []:
+        _apply_set(cfg, kv)
+    return cfg
+
+
+def _apply_set(cfg, kv: str):
+    """--set a.b=c ghi đè config khi chạy thử, vd:
+      --set strategy.agent.samples=6  --set strategy.agent.options.shop_notes=false  --set decision.min_score=0.9"""
+    import yaml
+    key, _, raw = kv.partition('=')
+    val = yaml.safe_load(raw)
+    parts = key.split('.')
+    if parts[0] == 'strategy':
+        st = cfg.strategy(parts[1])
+        if st is None:
+            raise SystemExit(f'--set: không có strategy {parts[1]!r}')
+        obj, parts = st, parts[2:]
+    else:
+        obj = cfg
+    for p in parts[:-1]:
+        obj = obj[p] if isinstance(obj, dict) else getattr(obj, p)
+    if isinstance(obj, dict):
+        obj[parts[-1]] = val
+    else:
+        setattr(obj, parts[-1], val)
 
 
 def _part(args) -> tuple[set | None, bool]:
@@ -46,13 +71,16 @@ def cmd_predict(args):
     biz = args.biz
     if shops is not None:
         biz = sorted(shops & set(biz)) if biz else sorted(shops)
+    ids = list(args.id or [])
+    if getattr(args, 'ids_file', None):
+        ids += [x.strip() for x in Path(args.ids_file).read_text(encoding='utf-8').split() if x.strip()]
     orch = Orchestrator(cfg, args.split, args.out)
-    s = asyncio.run(orch.run(ids=args.id, businesses=biz, limit=args.limit, resume=not args.fresh))
+    s = asyncio.run(orch.run(ids=ids or None, businesses=biz, limit=args.limit, resume=not args.fresh))
     print(json.dumps({k: v for k, v in s.items() if k != 'catalogs'}, ensure_ascii=False, indent=1))
     if args.eval and (Path(args.split) / 'answers.jsonl').exists():
         from datamate.offline.eval import evaluate, format_report
         rep = evaluate(args.split, str(Path(args.out) / 'submission.jsonl'), out_dir=args.out,
-                       only_answered_ids=bool(args.id or args.biz or args.limit), businesses=shops, sealed=sealed)
+                       only_answered_ids=bool(ids or args.biz or args.limit), businesses=shops, sealed=sealed)
         print(format_report(rep))
 
 
@@ -71,6 +99,32 @@ def cmd_split_info(args):
     for b, v in info.items():
         print(f"{b}: câu={v['questions']:4d} ngành={v['industry']:10s} họ={v['family']:18s} files={v['files'][:5]}")
     print('\nnhóm (ngành, họ dữ liệu):', dict(fam))
+
+
+def cmd_sweep(args):
+    from datamate.core.config import load_config
+    from datamate.offline.split import load_part
+    from datamate.offline.sweep import agreement_table, load_rows, sweep
+    shops = load_part(args.split_file, 'dev') if args.split_file else None
+    rows = load_rows(args.split, args.run, shops)
+    base = load_config(args.config).decision
+    print(f'{len(rows)} câu dev có log. Số lời giải agent đồng ý -> tỉ lệ đúng:')
+    for k, v in agreement_table(rows).items():
+        print(f"  {k:>5s}: n={v['n']:4d} precision={v['precision']}")
+    print('PA theo ngưỡng (tốt nhất trước):')
+    for r in sweep(rows, base)[:12]:
+        print(f"  min_score={r['min_score']:<4} min_share={r['min_share']:<4} PA={r['PA']:+.4f} đúng={r['correct']} sai={r['wrong']}")
+    print('=> sửa decision.min_score / min_share trong config theo dòng đầu (nên chọn chặt hơn một nấc vì private khác train)')
+
+
+def cmd_make_subset(args):
+    from datamate.offline.subset import make_subset
+    from datamate.offline.split import load_part
+    shops = load_part(args.split_file, 'dev') if args.split_file else None
+    ids, info = make_subset(args.split, args.run, args.n, shops=shops)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out).write_text('\n'.join(ids) + '\n', encoding='utf-8')
+    print(f'{len(ids)} câu -> {args.out}: {info}')
 
 
 def cmd_make_split(args):
@@ -154,12 +208,14 @@ def main(argv=None):
         p.add_argument('--split', required=True)
         p.add_argument('--config', default=None)
         p.add_argument('--no-llm', action='store_true')
+        p.add_argument('--set', action='append', help='ghi đè config, vd --set strategy.agent.options.shop_notes=false')
         p.add_argument('--biz', nargs='*')
         if name in ('predict', 'ask'):
             p.add_argument('--out', default=None if name == 'ask' else '/result')
             p.add_argument('--id', nargs='*')
         if name == 'predict':
             _split_args(p)
+            p.add_argument('--ids-file', default=None, help='file chứa id câu hỏi (mỗi dòng một id), vd từ make-subset')
             p.add_argument('--limit', type=int)
             p.add_argument('--fresh', action='store_true', help='không resume, chạy lại từ đầu')
             p.add_argument('--eval', action='store_true', help='chấm ngay nếu split có answers.jsonl')
@@ -181,6 +237,17 @@ def main(argv=None):
     p.add_argument('--seen', nargs='*', help='shop đã xem lỗi (luôn vào dev), vd biz_101 biz_102 hoặc "biz_101,biz_102"')
     p.add_argument('--n-holdout', type=int, default=8)
     p.add_argument('--out', default='configs/split.yaml')
+    p = sub.add_parser('make-subset', help='chọn N câu dev để so mô hình LLM (ưu tiên câu tầng A bỏ trống / sai)')
+    p.add_argument('--split', required=True)
+    p.add_argument('--run', required=True, help='lần chạy tầng A trên dev (có logs + submission)')
+    p.add_argument('--split-file', default=None, help='chỉ lấy shop dev trong split.yaml')
+    p.add_argument('--n', type=int, default=200)
+    p.add_argument('--out', default='runs/subset_dev.txt')
+    p = sub.add_parser('sweep', help='v2.3: chọn ngưỡng bỏ phiếu trên dev từ logs (không chạy lại LLM)')
+    p.add_argument('--split', required=True)
+    p.add_argument('--run', required=True)
+    p.add_argument('--split-file', default=None)
+    p.add_argument('--config', default='configs/v2_agent.yaml')
     p = sub.add_parser('rules')
     p.add_argument('--split', required=True)
     p.add_argument('--out', default=None)
@@ -193,7 +260,8 @@ def main(argv=None):
     _split_args(p)
     args = ap.parse_args(argv)
     {'predict': cmd_predict, 'eval': cmd_eval, 'build': cmd_build, 'ask': cmd_ask, 'rules': cmd_rules,
-     'calibrate': cmd_calibrate, 'split-info': cmd_split_info, 'make-split': cmd_make_split}[args.cmd](args)
+     'calibrate': cmd_calibrate, 'split-info': cmd_split_info, 'make-split': cmd_make_split,
+     'make-subset': cmd_make_subset, 'sweep': cmd_sweep}[args.cmd](args)
 
 
 def _split_args(p):

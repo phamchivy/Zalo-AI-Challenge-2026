@@ -36,6 +36,9 @@ dev:                           ## chạy thô trên dev + hiệu chỉnh chỉ t
 holdout:                       ## 1 con số PA trên holdout (không xuất lỗi)
 	python -m datamate.runtime.main predict --split $(TRAIN) --split-file configs/split.yaml --part holdout --out runs/holdout --config configs/no_llm.yaml --eval --fresh
 
+v2-sweep:                      ## v2.3: chọn ngưỡng bỏ phiếu trên dev từ logs của lần chạy v2 (RUN=runs/v2_dev)
+	python -m datamate.runtime.main sweep --split $(TRAIN) --run $(RUN) --split-file configs/split.yaml
+
 eval-train-nollm:
 	python -m datamate.runtime.main predict --split $(TRAIN) --out $(OUT) --config configs/no_llm.yaml --eval --fresh
 
@@ -43,4 +46,4 @@ predict-public:
 	python -m datamate.runtime.main predict --split $(PUBLIC) --out $(OUT) --config $(CONFIG) --fresh
 
 docker:
-	docker build -f docker/Dockerfile -t datamate:v1.2 .
+	docker build -f docker/Dockerfile -t datamate:v2.0 .

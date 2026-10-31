@@ -43,6 +43,8 @@ class DecisionConfig(BaseModel):
                                                                      'duplicate_sources': 1.0})
     recon_mismatch_max: float = 0.2             # tỉ lệ đơn lệch (dòng hàng vs tiền hàng của đơn) tối đa coi là khoẻ
     type_contract: bool = True                  # loại candidate lệch kiểu so với dạng câu hỏi
+    # v2 — chỉ gọi strategy LLM khi tầng A chưa đủ chắc: quyết định pha 1 đã trả lời với support >= ngưỡng thì bỏ qua LLM
+    llm_skip_support: float = 0.9
 
 
 class Config(BaseModel):

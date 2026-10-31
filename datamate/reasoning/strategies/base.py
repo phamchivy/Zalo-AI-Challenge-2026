@@ -18,6 +18,7 @@ class Env:
     packs: dict = field(default_factory=dict)        # business_id -> pack path
     shop_blocks: dict = field(default_factory=dict)  # business_id -> prompt block (cache)
     deadline: float = float('inf')           # time.time() quá mốc -> chỉ chạy strategy không dùng LLM
+    kernel: Any = None                       # v2: KernelPool (agent tạo khi cần, orchestrator đóng cuối lần chạy)
 
     def llm_allowed(self) -> bool:
         return self.llm is not None and self.cfg.llm.enabled and time.time() < self.deadline

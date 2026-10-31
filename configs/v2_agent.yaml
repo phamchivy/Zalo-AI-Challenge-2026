@@ -1,0 +1,50 @@
+# v2: tầng A (không LLM) + agent nhiều bước (LLM viết code -> chạy -> đọc kết quả), bỏ phiếu.
+# vLLM: mặc định 1 server chia mô hình qua 2 GPU (tensor-parallel) ở cổng 8000. Chế độ 2 bản (dp) đặt
+#   DATAMATE_LLM_URLS=http://127.0.0.1:8000/v1,http://127.0.0.1:8001/v1 (chỉ dùng khi BTC xác nhận hợp lệ).
+# Công tắc thử nghiệm: strategies[agent].options.shop_notes (v2.1), rule_hints (v2.2), samples, max_steps.
+name: v2_agent
+cache_dir: /tmp/datamate_cache
+workers: 8
+question_concurrency: 24        # số câu chạy agent đồng thời (mỗi câu K lời giải -> ~24*K yêu cầu LLM song song)
+time_budget_sec: 19800          # 5.5h tính từ lúc bắt đầu predict; quá mốc chỉ còn tầng A (giới hạn BTC 6h gồm nạp mô hình)
+sandbox_timeout_sec: 30
+max_repair_rounds: 1
+llm:
+  enabled: true
+  base_urls: ["http://127.0.0.1:8000/v1"]
+  model: qwen
+  temperature: 0.2
+  seed: 42
+  max_tokens: 1200
+  timeout_sec: 300
+  max_concurrency: 96
+  guided_json: true
+  disable_thinking: true        # Qwen3: tắt chế độ suy nghĩ dài (đổi true -> false để thử)
+  wait_ready_sec: 1500
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
+  - name: agent
+    weight: 0.3                 # mỗi lời giải 1 phiếu 0.3 -> cần >= 3/4 lời giải đồng ý khi tầng A không có đáp án
+    samples: 4
+    options:
+      styles: [canon_pandas, sql, raw_tables, canon_check]
+      temperatures: [0.2, 0.6, 0.6, 0.8]
+      max_steps: 8
+      max_tokens_step: 1200
+      cell_timeout: 30
+      shop_notes: true          # v2.1
+      rule_hints: true          # v2.2
+      unanswerable_factor: 0.8      # 'không trả lời được' chỉ thắng khi cả 4 lời giải cùng kết luận
+      kernel: {per_shop: 6, max_workers: 32, mem_gb: 12}
+      cards_chars: 12000         # ngân sách ngữ cảnh (ký tự) để vừa max-model-len 32k
+      readme_chars: 7000
+      history_chars: 52000
+decision:
+  min_score: 0.8
+  min_share: 0.6
+  unanswerable_min_score: 0.9
+  calibration_path: configs/calibration.yaml
+  unexplained_factor: [1.0, 0.5, 0.0]
+  type_contract: true
+  llm_skip_support: 0.9         # tầng A đã trả lời với độ tin cậy >= 0.9 thì không gọi LLM
