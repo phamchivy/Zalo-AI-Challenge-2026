@@ -49,13 +49,16 @@ class TableProfile:
 
 _DATEISH = re.compile(r'(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})|(\d{4}-\d{1,2}-\d{1,2})|(thg)')
 _NUMISH = re.compile(r'^\(?[-+]?\d[\d.,]*\)?\s*[^\d\s]{0,8}$')
+# tiền viết tắt: '1tr440', '1tr5', '3tr450k', '1ty2'
+_MONEY_SHORT = re.compile(r'^[-+]?\d{1,3}\s*(tr|triệu|trieu|tỷ|ty|tỉ|k)\s*\d{1,3}\s*(k|đ|d)?$', re.I)
 
 
 def is_numberish(x) -> bool:
     """Ô là số thật sự ('38,000', '1.200.000đ', '2 hộp'), không phải tên có chứa số ('Panadol 500mg')."""
     if isinstance(x, (int, float)) and not isinstance(x, bool):
         return x == x
-    return bool(_NUMISH.match(str(x).strip()))
+    t = str(x).strip()
+    return bool(_NUMISH.match(t) or _MONEY_SHORT.match(t))
 
 
 def profile_column(name: str, s: pd.Series) -> ColumnProfile:

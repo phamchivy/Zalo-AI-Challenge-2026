@@ -68,7 +68,12 @@ def clean_line_frame(f: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
 def _keyset(f: pd.DataFrame) -> Optional[set]:
     if 'order_id' in f.columns and f['order_id'].notna().mean() > 0.3:
-        return set(f['order_id'].dropna().astype(str).str.strip())
+        oid = f['order_id'].astype(str).str.strip()
+        # mã đơn có thể đánh lại từ đầu mỗi năm / mỗi file -> khoá = (mã đơn, tháng của ngày đã đọc)
+        if '__dkey__' in f.columns and f['__dkey__'].notna().mean() > 0.5:
+            ok = f['order_id'].notna()
+            return set(zip(oid[ok], f.loc[ok, '__dkey__'].astype(str)))
+        return set(oid[f['order_id'].notna()])
     if 'date' in f.columns and 'amount' in f.columns:
         return set(zip(f['date'].astype(str), f['amount'].astype(str)))
     return None
@@ -107,10 +112,68 @@ def reconcile(L: pd.DataFrame, O: Optional[pd.DataFrame]) -> dict:
     return {'recon_orders': int(len(both)), 'recon_mismatch': round(float(bad.mean()), 4)}
 
 
+def order_level(f: pd.DataFrame, col: str, key: str = 'order_id', min_orders: int = 20) -> bool:
+    """Cột lặp lại y nguyên trên MỌI dòng của các đơn nhiều dòng (giá trị cấp đơn, vd 'Tiền giảm' của cả đơn),
+    xét trên các đơn có giá trị khác 0."""
+    if col not in f.columns or key not in f.columns:
+        return False
+    v = pd.DataFrame({'k': f[key], 'x': f[col].map(to_num)})
+    v = v[v['k'].notna()]
+    n = v.groupby('k')['x'].transform('size')
+    v = v[n >= 2]
+    if v.empty:
+        return False
+    g = v.groupby('k')['x']
+    st = pd.DataFrame({'n': g.size(), 'cnt': g.count(), 'nu': g.nunique(),
+                       'nz': (v['x'].fillna(0).abs() > 0).groupby(v['k']).any()})
+    st = st[st['nz']]
+    if len(st) < min_orders:
+        return False
+    return bool(((st['cnt'] == st['n']) & (st['nu'] == 1)).mean() >= 0.9)
+
+
+def stt_groups(L: pd.DataFrame) -> Optional[pd.Series]:
+    """Sổ ghi tay không có mã đơn: số thứ tự (STT) chỉ ghi ở dòng đầu mỗi đơn, dòng sau để trống.
+    Trả về khoá đơn = (bảng, số nhóm) nếu cấu trúc này được xác nhận bằng dữ liệu, None nếu không chắc.
+    Xác nhận: tiền khách trả ở dòng đầu khớp TỔNG thành tiền của nhóm hơn là thành tiền của riêng dòng đó;
+    hoặc (không có cột tiền trả) các cột cấp đơn chỉ có ở dòng đầu nhóm."""
+    if 'line_no' not in L.columns or len(L) < 50:
+        return None
+    ln = L['line_no']
+    filled = ln.notna() & (ln.astype(str).str.strip().isin(['', 'nan', 'None']) == False)  # noqa: E712
+    r = float(filled.mean())
+    if not (0.15 <= r <= 0.95):
+        return None
+    tbl = L['__table__'] if '__table__' in L.columns else pd.Series('t', index=L.index)
+    gid = filled.astype(int).groupby(tbl).cumsum()
+    if (gid == 0).mean() > 0.01:            # dòng trước STT đầu tiên -> không phải cấu trúc nhóm
+        return None
+    key = tbl.astype(str) + '#' + gid.astype(str)
+    size = key.map(key.value_counts())
+    first = ~key.duplicated()
+    if 'paid' in L.columns and 'amount' in L.columns:
+        sumamt = L['amount'].groupby(key).sum()
+        m = first & (size >= 2) & L['paid'].notna() & L['amount'].notna()
+        if m.sum() >= 20:
+            s_ = key[m].map(sumamt)
+            ok_g = float(((L.loc[m, 'paid'] - s_).abs() <= 0.2 * s_.abs()).mean())
+            ok_r = float(((L.loc[m, 'paid'] - L.loc[m, 'amount']).abs() <= 0.2 * L.loc[m, 'amount'].abs()).mean())
+            return key if ok_g >= 0.6 and ok_g > ok_r else None
+    for c in ('customer_name', 'customer_code', 'order_total', 'paid'):
+        if c in L.columns:
+            cont = ~filled
+            if cont.sum() >= 20 and L.loc[cont, c].isna().mean() >= 0.95 and L.loc[filled, c].notna().mean() >= 0.8:
+                return key
+    return None
+
+
 def amount_is_gross(L: pd.DataFrame) -> bool:
-    """Cột thành tiền đang là tiền TRƯỚC giảm dòng (= SL × đơn giá) trong khi có giảm dòng > 0."""
+    """Cột thành tiền đang là tiền TRƯỚC giảm dòng (= SL × đơn giá) trong khi có giảm dòng > 0.
+    Không áp dụng khi cột "giảm" thực ra là giảm của cả đơn (lặp lại trên mọi dòng)."""
     need = {'amount', 'qty', 'unit_price', 'line_discount'}
     if not need <= set(L.columns):
+        return False
+    if 'order_id' in L.columns and order_level(L, 'line_discount'):
         return False
     d = L['line_discount'].fillna(0)
     m = (d > 100) & L['qty'].notna() & L['unit_price'].notna() & L['amount'].notna()

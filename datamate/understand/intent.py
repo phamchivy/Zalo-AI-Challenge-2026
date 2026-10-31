@@ -40,6 +40,23 @@ REV_WORDS = r'\b(doanh thu|doanh so|tien hang|tien ban|thu ve|thu duoc|ban duoc 
 _PCT = re.compile(r'(?<![\d.,])%|\bphan tram\b|\b(ti|ty) le\b|\b(ti|ty) trong\b')
 
 
+# lãi / lời: không nhận "lai" đứng một mình ("cộng lại", "bán lại", "trả lại")
+GP_WORDS = re.compile(r'\b(lai gop|loi gop|loi nhuan|tien lai|tien loi|(lai|loi) (bao nhieu|bn|duoc|may|ra sao|the nao))\b')
+PAY_CUE = re.compile(r'\b(tra|thanh toan|tt) (bang|qua)\b|\b(hinh thuc|phuong thuc) (thanh toan|tt)\b')
+UNSUPPORTED_ATTR = re.compile(r'\bkhach (hang )?(nam|nu)\b(?!\s*(\d|nay|truoc|ngoai|qua|roi))|\b(gioi tinh|do tuoi)\b')
+
+
+def payment_mentions(qn: str) -> set[str]:
+    """Hình thức thanh toán được nêu trong câu (theo từ vựng chung, độ dài ≥ 3 để tránh 'vi', 'ck' mơ hồ)."""
+    out = set()
+    for code, al in EL.PAYMENT_SYN.items():
+        if code == 'debt':          # ghi nợ / mua chịu là nghiệp vụ công nợ, không phải bộ lọc thanh toán
+            continue
+        if any(len(a) >= 3 and re.search(rf'\b{re.escape(a)}\b', qn) for a in al):
+            out.add(code)
+    return out
+
+
 def asks_pct(qn: str) -> bool:
     return bool(_PCT.search(qn))
 
@@ -198,7 +215,11 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
     staff = EL.link_staff(ix, qf) if re.search(r'\bnhan vien\b|\bnv\d', qn) else None
     shift = EL.shift_filter(qn)
     size = EL.size_filter(qn)
-    unit = EL.asked_unit(qn)
+    # đơn vị hỏi: bỏ phần tên hàng đã nhận ra ("máy bơm ..." không phải câu hỏi "mấy bơm")
+    qn_wo = qn
+    for _, d_, _ in prods:
+        qn_wo = qn_wo.replace(EL.fold(d_), ' ')
+    unit = EL.asked_unit(qn_wo)
     rx = None
     if re.search(r'\bke don\b', qn):
         rx = not bool(re.search(r'\b(khong|ko) ke don\b', qn))
@@ -232,6 +253,14 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         filters['product'] = prods[0][0]
     if 'hoat chat' in qn and not ingr:
         return ParseResult(intent='ingredient', tier_b_hint='ingredient', reason='ingredient not found')
+    # câu có điều kiện thanh toán mà không nối được với giá trị trong dữ liệu -> không trả lời con số không lọc
+    pay_named = payment_mentions(qn)
+    if (PAY_CUE.search(qn) and not pays) or (pay_named - set(pays)):
+        return ParseResult(intent='payment_filter', tier_b_hint='payment_filter',
+                           reason=f'payment filter not linked: {sorted(pay_named - set(pays)) or "cue"}')
+    # thuộc tính khách không có trong dữ liệu chuẩn (giới tính, độ tuổi) -> không bỏ qua điều kiện
+    if UNSUPPORTED_ATTR.search(qn):
+        return ParseResult(intent='attribute_filter', tier_b_hint='attribute_filter', reason='unsupported customer attribute')
     if re.search(r'\bnhan vien\b', qn) and not staff and not re.search(r'nhan vien (nao|ban gioi|gioi nhat|xuat sac|cham chi)', qn):
         return ParseResult(intent='staff', tier_b_hint='staff', reason='staff not linked')
     if re.search(r'\bnhom\b', qn) and not (cat or cg):
@@ -263,12 +292,14 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
     def base_metric() -> Optional[str]:
         if re.search(r'\b(trung binh|binh quan)\b.*\b(don|bill|hoa don)\b|\bgia tri trung binh\b', qn):
             return 'aov'
-        if re.search(r'\b(lai gop|loi gop|lai|loi)\b', qn) and not re.search(r'\bdoanh thu\b', qn):
+        if GP_WORDS.search(qn) and not re.search(r'\bdoanh thu\b', qn):
             return 'gross_profit'
         if re.search(r'\b(so|may|bao nhieu|dem|tong so) (don|hoa don|luot mua)\b|\bmay don\b|\bso don\b', qn):
             return 'orders'
         if re.search(r'\b(bao nhieu|may|so) khach\b', qn) and not re.search(r'\bkhach (nao|hang nao)\b', qn):
             return 'customers'
+        if re.search(r'\b(doanh thu|doanh so)\b', qn) and not re.search(r'\bso luong\b', qn):
+            return 'revenue'
         if unit or re.search(r'\b(so luong|ban (ra |duoc )?(bao nhieu|may)(?! tien))\b', qn) and not re.search(r'\btien\b|doanh thu', qn):
             return 'qty'
         if re.search(REV_WORDS, qn):
@@ -341,7 +372,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         return none('cancel', 'ambiguous cancel')
 
     # ---- 5. ngưỡng (đếm / % nhóm thỏa điều kiện)
-    if re.search(r'\b(bao nhieu|may|so|dem)\s+ngay\b', qn) and re.search(r'\b(dat|tu|tren|hon|it nhat|qua)\b', qn):
+    if re.search(r'\b(bao nhieu|may|so|dem|nhieu|bn)\s+ngay\b', qn) and re.search(r'\b(dat|tu|tren|hon|it nhat|qua)\b', qn):
         thr = _money_threshold(qn)
         met = base_metric()
         if thr and met == 'revenue':
@@ -442,7 +473,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
                 return none('top_category', 'ranking criterion not stated')
             return res('top_category', mk(met, 'top', group_by='category', k=k or 1, answer_type=AnswerType.STRING), 0.7)
         if re.search(r'\b(mat hang|san pham|hang|mon|thuoc|sp|loai|mau|item)\b', qn) or re.search(r'ban chay|hot nhat|best seller', qn):
-            if re.search(r'\b(lai|loi|loi nhuan|lai gop|loi gop)\b', qn):
+            if GP_WORDS.search(qn) or re.search(r'\b(lai|loi) nhat\b', qn):
                 met = 'gross_profit'
             elif re.search(r'\b(doanh thu|nhieu tien|tien)\b', qn) and not re.search(r'ban chay', qn):
                 met = 'revenue'

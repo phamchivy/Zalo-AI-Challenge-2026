@@ -15,9 +15,13 @@ def _read_jsonl(p: Path) -> list[dict]:
 
 
 def evaluate(split_dir: str, pred_path: str, logs_dir: Optional[str] = None, out_dir: Optional[str] = None,
-             only_answered_ids: bool = False) -> dict:
+             only_answered_ids: bool = False, businesses: Optional[set] = None, sealed: bool = False) -> dict:
+    """businesses: chỉ chấm các shop này (dev / holdout). sealed=True (holdout): chỉ giữ PA tổng + theo kiểu đáp án,
+    không ghi errors.jsonl, không breakdown theo shop / intent (để không ai sửa code theo holdout)."""
     split = Path(split_dir)
     qs = {q['id']: q for q in _read_jsonl(split / 'questions.jsonl')}
+    if businesses is not None:
+        qs = {k: q for k, q in qs.items() if q['business_id'] in businesses}
     gold = {a['id']: a for a in _read_jsonl(split / 'answers.jsonl')}
     preds = {p['id']: p for p in _read_jsonl(Path(pred_path))}
     ids = [i for i in qs if i in preds] if only_answered_ids else list(qs)
@@ -57,10 +61,17 @@ def evaluate(split_dir: str, pred_path: str, logs_dir: Optional[str] = None, out
         'breakdown': {k: {v: {'n': r[0], 'ok': r[1], 'abstain': r[2], 'wrong': r[3], 'PA': round((r[1] - r[3]) / max(r[0], 1), 3)}
                           for v, r in sorted(d.items(), key=lambda x: -x[1][0])} for k, d in agg.items()},
     }
+    if sealed:
+        rep['breakdown'] = {'gold_type': rep['breakdown'].get('gold_type', {})}
+        rep['sealed'] = True
+        errors = []
     if out_dir:
         o = Path(out_dir)
         o.mkdir(parents=True, exist_ok=True)
-        (o / 'eval_report.json').write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding='utf-8')
+        (o / ('eval_report_holdout.json' if sealed else 'eval_report.json')).write_text(
+            json.dumps(rep, ensure_ascii=False, indent=1), encoding='utf-8')
+        if sealed:
+            return rep
         with open(o / 'errors.jsonl', 'w', encoding='utf-8') as f:
             for e in errors:
                 f.write(json.dumps(e, ensure_ascii=False, default=str) + '\n')
@@ -70,7 +81,11 @@ def evaluate(split_dir: str, pred_path: str, logs_dir: Optional[str] = None, out
 def format_report(rep: dict, top: int = 15) -> str:
     lines = [f"N={rep['n']}  PA={rep['PA']:.4f}  đúng={rep['correct']}  sai={rep['wrong']}  bỏ={rep['abstain']}  "
              f"acc(trả lời)={rep['accuracy_answered']:.3f}  coverage={rep['coverage']:.3f}"]
+    if rep.get('sealed'):
+        lines[0] = '[HOLDOUT] ' + lines[0]
     for k in ('gold_type', 'intent', 'policy', 'business'):
+        if k not in rep['breakdown']:
+            continue
         lines.append(f'\n[{k}]')
         for v, r in list(rep['breakdown'].get(k, {}).items())[:top]:
             lines.append(f"  {v:28s} n={r['n']:4d} ok={r['ok']:4d} bỏ={r['abstain']:4d} sai={r['wrong']:4d} PA={r['PA']:+.3f}")

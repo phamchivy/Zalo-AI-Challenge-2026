@@ -10,6 +10,7 @@ Không có luật nào gắn với business_id cụ thể.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -30,16 +31,16 @@ ROLES: dict[str, tuple[str, str, str]] = {
     'status': ('text', r'^trang thai don', r'^((trang thai|tinh trang)( (don|don hang|giao|xu ly|hoa don|ban))?|ket qua|status|xu ly|tien do)$'),
     'customer_code': ('id', r'^ma khach', r'^(ma (kh|khach|khach hang|khach mua)|so kh|customer id|ma kh mua|id khach)$'),
     'customer_name': ('text', r'^ten khach', r'^(khach|khach hang|ten (khach|khach hang|kh)|doi tac|ben mua|ho ten khach|nguoi mua|customer)$'),
-    'customer_group': ('text', r'^nhom khach', r'^(nhom( khach| khach hang| kh)?|loai khach( hang)?|hang)$'),
-    'product_code': ('id', r'^ma hang\b', r'^(ma (hang|sp|hang hoa|san pham|hh|mon|vach|hang ban)|sku|id sp|ma sku|barcode)$'),
-    'product_name': ('text', r'^(ten hang|ten)\b(?!.*khach)', r'^(ten (hang|san pham|hang hoa|mon|mat hang|thuoc)|noi dung|hang|mat hang|hang hoa|hang ban|chi tiet hang|product|san pham|mon|ten goi|ten sp)$'),
+    'customer_group': ('text', r'^nhom khach', r'^(nhom( khach| khach hang| kh)?|loai khach( hang)?|hang|hang (kh|khach|khach hang|thanh vien))$'),
+    'product_code': ('id', r'^ma hang\b', r'^(ma (hang|sp|hang hoa|h hoa|hhoa|san pham|hh|mon|vach|hang ban|item)|sku|id sp|ma sku|barcode|item code)$'),
+    'product_name': ('text', r'^(ten hang|ten)\b(?!.*khach)', r'^(ten (hang|san pham|hang hoa|mon|mat hang|thuoc)|noi dung|hang|mat hang|hang hoa|hang ban|chi tiet hang|product|san pham|mon|ten goi|ten sp|item|ten item)$'),
     'category': ('text', r'^nhom hang', r'^(nhom hang( hoa)?|danh muc|phan loai|loai hang|nhom|category|nganh hang)( \d cap)?$'),
     'unit': ('text', r'^don vi tinh', r'^(dvt|don vi( tinh)?|unit|d vi|dv)$'),
     'base_unit': ('text', r'^don vi co ban', r'^(don vi co (ban|so)|dvt co ban|don vi goc)$'),
-    'qty': ('num', r'^so luong( \(|$)', r'^(so luong|sl|slg|sluong|so luong san pham|qty|quantity)$'),
-    'qty_base': ('num', r'^so luong da doi ra don vi co ban', r'^(sl quy doi|so luong quy doi|quy ra dv le|sl co ban|so luong le|sl quy ra le|slquydoi|so luong co ban)$'),
-    'unit_price': ('num', r'^don gia', r'^(don gia( \(?d\)?)?|gia ban|gia|gia le|gia san pham|gia don vi|gia niem yet|dg)$'),
-    'line_discount': ('num', r'^tien giam cua ca dong', r'^(chiet khau|khuyen mai|tien giam|giam gia dong)$'),
+    'qty': ('num', r'^so luong( \(|$)', r'^(so luong|sl|s l|slg|sluong|so luong san pham|so luong ban|qty|quantity)$'),
+    'qty_base': ('num', r'^so luong da doi ra don vi co ban', r'^(sl quy doi|so luong quy doi|quy ra dv le|sl co ban|so luong le|sl quy ra le|slquydoi|so luong co ban|(sl|so luong) (dv|dvt|don vi) (co ban|le|goc))$'),
+    'unit_price': ('num', r'^don gia', r'^(don gia( \(?d\)?)?|gia ban|gia|gia le|gia san pham|gia don vi|gia (1|mot) (dv|dvt|don vi)|gia niem yet|dg)$'),
+    'line_discount': ('num', r'^tien giam cua ca dong', r'^(chiet khau|khuyen mai|tien giam|giam|giam gia dong|giam dong)$'),
     'amount': ('num', r'^thanh tien', r'^(thanh tien|tri gia|t tien|tt|thanh tien dong)$'),
     'cost_unit': ('num', r'^gia von (luc ban|mot don vi ban)', r'^(gia von luc ban|gia von hang ban)$'),
     'channel': ('text', r'^kenh ban', r'^(kenh( ban( hang)?)?|nguon( don)?|ban qua|channel)$'),
@@ -49,7 +50,7 @@ ROLES: dict[str, tuple[str, str, str]] = {
     'order_discount': ('num', r'^giam gia cua ca don', r'^(giam gia hd|giam gia don|ck don|chiet khau don)$'),
     'order_total': ('num', r'^(tong tien don|so khach phai tra|khach can tra)', r'^(tong (tien|bill|thanh toan|sau giam gia|cong|tien don)|tong tien|can tra|khach can tra)$'),
     'paid': ('num', r'^(da thanh toan|khach da tra|so tien khach tra)', r'^(da tra|khach da tra|da thu|khach tra|da thanh toan)$'),
-    'debt': ('num', r'^(con no|so khach con no|khach con no)', r'^(con no|chua tra|con lai|con phai thu|no)$'),
+    'debt': ('num', r'^(con no|so khach con no|khach con no)', r'^(con no|chua tra|con lai|con phai thu|no|cong no)$'),
     'ship_fee': ('num', r'^phi giao', r'^(phi (ship|giao( hang)?|van chuyen)|ship)$'),
     'vat': ('num', r'^thue', r'^(thue( gtgt| vat)?|vat)$'),
     'note': ('text', r'^ghi chu', r'^(ghi chu|note|dien giai|mo ta)$'),
@@ -63,15 +64,15 @@ ROLES: dict[str, tuple[str, str, str]] = {
     'phone': ('text', r'^so dien thoai', r'^(dien thoai|sdt|so dien thoai|phone)$'),
     'address': ('text', r'^dia chi', r'^(dia chi( lien he)?|addr|address)$'),
     # --- thanh toán / trả hàng
-    'receipt_id': ('id', r'^ma phieu thu', r'^(ma phieu thu|phieu thu|so phieu thu)$'),
-    'pay_datetime': ('datetime', r'^thoi diem thu', r'^(thoi gian thu|ngay gio thu|ngay thu)$'),
-    'pay_amount': ('num', r'^so tien$', r'^(so tien( thu)?|tien)$'),
+    'receipt_id': ('id', r'^ma phieu thu', r'^(ma phieu thu|phieu thu|so phieu thu|ma phieu|ma thanh toan|ma tt|ma giao dich thu)$'),
+    'pay_datetime': ('datetime', r'^thoi diem thu', r'^(thoi gian thu|ngay gio thu|ngay thu|ngay tt|ngay thanh toan|thoi gian (tt|thanh toan))$'),
+    'pay_amount': ('num', r'^so tien$', r'^(so tien( thu)?|tien|tien thu|gia tri|so tien thanh toan)$'),
     'return_id': ('id', r'^ma phieu tra', r'^(ma phieu tra)$'),
     'return_qty': ('num', r'^so luong khach tra lai', r'^(sl tra( quy doi| dvt co ban)?|so luong tra( dvt co ban)?|sltraquydoi)$'),
     'refund': ('num', r'^tien hoan', r'^(tien hoan tra|hoan tien)$'),
     # --- generic (đổi tên theo loại bảng ở RENAME)
     'name': ('text', r'^(ten|ho ten)( |$)', r'^(ten|ten goi|ho ten|name)$'),
-    'discount': ('num', r'^giam gia$', r'^(giam gia|ck|chiet khau|khuyen mai)$'),
+    'discount': ('num', r'^giam gia$', r'^(giam gia|ck|chiet khau|khuyen mai|bot|bot gia)$'),
     'table_no': ('text', r'^ban$', r'^(ban|phong ban|so ban)$'),
     'area': ('text', r'^khu vuc', r'^(khu vuc)$'),
     'n_guests': ('num', r'^so khach', r'^(so khach)$'),
@@ -152,6 +153,8 @@ class TableMapping:
     evidence: dict[str, str] = field(default_factory=dict)   # role -> 'readme' | 'name' | 'value'
     descs: dict[str, str] = field(default_factory=dict)      # column -> mô tả README (nếu có)
     uncertain: list[str] = field(default_factory=list)       # role có cột khác ngang điểm mà không được dùng -> không chắc
+    alts: dict[str, list[str]] = field(default_factory=dict)  # role -> cột ứng viên khác (chưa gán), điểm giảm dần
+    name_hint: Optional[str] = None                           # loại bảng gợi ý từ tên (để phát hiện bảng không nhận được)
 
 
 @dataclass
@@ -199,17 +202,66 @@ def _desc_score(desc: Optional[str], role: str) -> float:
     return 3.0 if re.search(rx, fold(desc)) else 0.0
 
 
+_UNIT_SUFFIX = re.compile(r'\s+(d|vnd|vn d|dong|dvn|k|nghin)$')
+_PAREN = re.compile(r'\s*[\(\[][^\)\]]*[\)\]]\s*')
+
+
+def name_variants(col: str) -> list[str]:
+    """Tên cột fold + các biến thể bỏ hậu tố đơn vị tiền ('Thành tiền (đ)', 'TongTienVND') và bỏ phần ngoặc
+    ('Khách hàng (tên)'). Biến thể chỉ dùng khi tên đầy đủ không khớp."""
+    fn = fold_name(col)
+    out = [fn]
+    st = _UNIT_SUFFIX.sub('', fn)
+    if st and st != fn:
+        out.append(st)
+    raw = str(col)
+    if '(' in raw or '[' in raw:
+        np_ = fold_name(_PAREN.sub(' ', raw))
+        if np_ and np_ not in out:
+            out.append(np_)
+    return out
+
+
+def _diacritic_veto(col: str, role: str) -> bool:
+    """fold() làm 'Hàng' (hàng hoá) và 'Hạng' (hạng khách) trùng nhau -> phân biệt bằng chữ có dấu."""
+    raw = unicodedata.normalize('NFC', str(col)).lower()
+    if role == 'customer_group' and re.search(r'\bhàng\b', raw) and not re.search(r'\bhạng\b', raw):
+        return True
+    if role in ('product_name', 'name') and re.search(r'\bhạng\b', raw):
+        return True
+    return False
+
+
 def _name_score(col: str, role: str) -> float:
-    return 2.0 if re.search(ROLES[role][2], fold_name(col)) else 0.0
+    if _diacritic_veto(col, role):
+        return 0.0
+    for i, v in enumerate(name_variants(col)):
+        if re.search(ROLES[role][2], v):
+            return 2.0 if i == 0 else 1.9
+    return 0.0
+
+
+def name_hint(name: str) -> Optional[str]:
+    """Gợi ý loại bảng từ tên. Tên sheet ('BanHang::BanHang_LichSuGia') cụ thể hơn tên file nên xét trước."""
+    parts = name.split('#')[0].split('::')
+    cands = []
+    if len(parts) > 1:
+        sh = parts[1].split('..')[0]
+        cands.append(fold_name(sh) + ' ' + fold(sh))
+    cands.append(fold_name(parts[0]) + ' ' + fold(parts[0]))
+    for fn in cands:
+        h = next((t for t, rx in TABLE_NAME_HINTS if re.search(rx, fn)), None)
+        if h:
+            return h
+    return None
 
 
 def classify_table(name: str, roles: set[str], n_rows: int) -> str:
-    fn = fold_name(name.split('::')[0]) + ' ' + fold(name)
-    hint = next((t for t, rx in TABLE_NAME_HINTS if re.search(rx, fn)), None)
+    hint = name_hint(name)
     has_prod = bool(roles & {'product_name', 'product_code'})
     has_line = bool(roles & {'qty', 'amount', 'qty_base'})
     has_order = 'order_id' in roles
-    if hint in ('payments',) and ({'pay_amount', 'pay_datetime', 'receipt_id'} & roles):
+    if hint in ('payments',) and ({'pay_amount', 'pay_datetime', 'receipt_id'} & roles) and not has_prod:
         return 'payments'
     if hint in ('returns',) and 'order_id' in roles:
         return 'returns'
@@ -302,6 +354,13 @@ def map_table(tp: TableProfile, info: ReadmeInfo, extra: dict[str, str]) -> Tabl
                 and s >= best_score.get(role2, 99) - 1e-6 and tm.roles[role2] != c:
             if role2 not in tm.uncertain:
                 tm.uncertain.append(role2)
+    for s, c, role, ev in sorted(cand, key=lambda x: -x[0]):
+        role2 = ren.get(role, role)
+        if (allowed is None or role in allowed) and c not in tm.col_roles and tm.roles.get(role2) != c:
+            lst = tm.alts.setdefault(role2, [])
+            if c not in lst:
+                lst.append(c)
+    tm.name_hint = name_hint(tp.name)
     _fix_dates(tm, tp)
     return tm
 

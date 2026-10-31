@@ -23,7 +23,7 @@ from datamate.data.readme import ReadmeInfo, parse_readme
 from datamate.data.schema_mapper import BusinessMapping, map_business
 
 log = get_logger('catalog')
-CACHE_VERSION = 'v1.1'
+CACHE_VERSION = 'v1.2'
 
 
 def _code_version() -> str:

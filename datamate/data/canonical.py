@@ -24,7 +24,8 @@ import pandas as pd
 from datamate.core.textutil import customer_key, fold, is_walkin, parse_date, parse_time, strip_phone, to_num, year_from_text
 from datamate.data.raw_loader import RawTable
 from datamate.data.readme import ReadmeInfo, convention_flags
-from datamate.data.sanity import amount_is_gross, clean_line_frame, dedupe_sources, is_summary_label, reconcile
+from datamate.data.sanity import (amount_is_gross, clean_line_frame, dedupe_sources, is_summary_label, order_level,
+                                  reconcile, stt_groups)
 from datamate.data.schema_mapper import BusinessMapping, TableMapping
 from datamate.data.vocab import is_nonproduct, is_service_fee, norm_payment, norm_status, status_from_note
 
@@ -125,6 +126,27 @@ def _overlap(a: pd.Series, b: pd.Series) -> float:
     return len(sa & sb) / max(len(sa), 1)
 
 
+def _fix_line_discount(f: pd.DataFrame, t: RawTable, m: TableMapping, notes: list) -> pd.DataFrame:
+    """Cột được hiểu là "giảm dòng" nhưng lặp lại y nguyên trên mọi dòng của đơn -> là giảm của cả đơn.
+    Chuyển sang order_discount; nếu bảng còn cột ứng viên giảm dòng khác (không lặp theo đơn) thì dùng cột đó."""
+    if 'line_discount' not in f.columns or 'order_id' not in f.columns or not order_level(f, 'line_discount'):
+        return f
+    f = f.copy()
+    src = m.roles.get('line_discount')
+    if 'order_discount' not in f.columns:
+        f['order_discount'] = f['line_discount']
+    f = f.drop(columns=['line_discount'])
+    for c in m.alts.get('line_discount', []):
+        if c in t.df.columns:
+            tmp = pd.DataFrame({'order_id': f['order_id'], 'x': t.df.loc[f.index, c]})
+            if not order_level(tmp, 'x'):
+                f['line_discount'] = t.df.loc[f.index, c]
+                notes.append(f'{m.table}: "{src}" is order-level discount; line discount = "{c}"')
+                return f
+    notes.append(f'{m.table}: "{src}" is order-level discount (moved to order_discount)')
+    return f
+
+
 # ----------------------------------------------------------------------------- main
 def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeInfo) -> Canonical:
     notes: list[str] = []
@@ -142,6 +164,10 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
         f, rep = clean_line_frame(f)
         for k_, v_ in rep.items():
             health[k_] += v_
+        f = _fix_line_discount(f, raw[m.table], m, notes)
+        if 'date' in f.columns or 'datetime' in f.columns:
+            d_ = _dates(f['date'] if 'date' in f.columns else f['datetime'], _sheet_year(f))
+            f['__dkey__'] = d_.map(lambda d: f'{d.year}-{d.month:02d}' if d is not None and d == d else None)
         for r_ in getattr(m, 'uncertain', []):
             if r_ not in health['uncertain_roles']:
                 health['uncertain_roles'].append(r_)
@@ -154,6 +180,12 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
     if health['summary_label_rows'] or health['header_rows']:
         notes.append(f"summary rows dropped: {health['summary_label_rows']}, header rows (no product, no qty): {health['header_rows']}")
     L = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    if '__dkey__' in L.columns:
+        L = L.drop(columns=['__dkey__'])
+    # bảng có tên là sổ thu / phiếu thu nhưng không nhận được cột -> không dùng cột "đã trả" (ảnh chụp cuối kỳ) thay thế
+    health['payments_unmapped'] = [m.table for m in bm.tables.values()
+                                   if getattr(m, 'name_hint', None) == 'payments'
+                                   and not (m.ttype == 'payments' and {'order_id', 'pay_amount'} <= set(m.roles))]
     O_raw = None
     if order_maps:
         # bảng đơn khớp mã đơn với dòng hàng nhiều nhất
@@ -206,8 +238,14 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
             L['order_id'] = L.groupby('__table__')['order_id'].ffill()
             notes.append('ffill order_id')
     else:
-        L['order_id'] = [f'R{i}' for i in range(len(L))]
-        notes.append('no order id: one order per row')
+        grp = stt_groups(L)
+        if grp is not None:
+            L['order_id'] = grp.values
+            real_order_id = True
+            notes.append(f'order key from row-number groups (STT on first line only): {L["order_id"].nunique()} orders')
+        else:
+            L['order_id'] = [f'R{i}' for i in range(len(L))]
+            notes.append('no order id: one order per row')
     # ngày / giờ
     if 'date' in L.columns:
         L['date'] = _dates(L['date'], years)

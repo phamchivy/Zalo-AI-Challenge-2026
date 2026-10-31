@@ -540,6 +540,9 @@ class Executor:
         E = self._debt_base()
         E = E[E['date'] <= X]
         pays = self.c.payments
+        if (pays is None or pays.empty) and (getattr(self.c, 'health', None) or {}).get('payments_unmapped'):
+            # shop có sổ thu nhưng không đọc được cột -> cột "đã trả" trên đơn là số cuối kỳ, không dùng cho ngày X
+            raise RuleMissing('payments ledger present but unmapped')
         if pays is not None and not pays.empty:
             pp = pays[pays['pay_date'].notna() & (pays['pay_date'] <= X)].groupby('order_id')['amount'].sum()
             paid = E['order_id'].map(pp).fillna(0.0)

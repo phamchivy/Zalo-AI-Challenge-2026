@@ -42,3 +42,48 @@ def test_slash_and_day_count():
 def test_age_buckets_from_question():
     b = age_buckets(qnorm('nhóm tuổi nợ 0–7 ngày, 8–15 ngày và trên 15 ngày'))
     assert b[:2] == [[0, 7], [8, 15]] and b[2][0] == 16
+
+
+# ----------------------------------------------------------------------------- v1.2
+def _ix_with(products=(), payments=()):
+    from datamate.core.textutil import fold
+    ix = EntityIndex()
+    ix.products = [(k, d, fold(d), '') for k, d in products]
+    ix.payments = list(payments)
+    ix.base_units = {'cai', 'bom'}
+    return ix
+
+
+def P2(q, ix, asof='2025-07-31'):
+    qn = qnorm(q)
+    d = date.fromisoformat(asof)
+    return parse_question(qn, qn, d, resolve_time(qn, d), ix, CAPS | {'payment'}, date(2025, 6, 1), date(2025, 7, 31), rules=RS)
+
+
+def test_payment_filter_not_linked_abstains():
+    ix = _ix_with(payments=['cash', 'transfer'])
+    assert P2('doanh thu các đơn trả bằng tiền tươi tháng 7/2025', ix).plan is None      # có "trả bằng" mà không nối được
+    assert P2('doanh thu các đơn trả bằng COD tháng 7/2025', ix).plan is None             # COD không có trong dữ liệu
+    assert P2('doanh thu các đơn trả bằng tiền mặt tháng 7/2025', ix).plan.filters.get('payment') == 'cash'
+
+
+def test_unsupported_attribute_abstains():
+    assert P('Tháng 6/2025 khách nam mua tổng cộng bao nhiêu tiền?').plan is None
+    assert P('khách năm 2025 mua bao nhiêu tiền').intent != 'attribute_filter'
+
+
+def test_cong_lai_is_not_profit():
+    r = P('tháng 6/2025 tiền hàng các đơn cộng lại là bao nhiêu')
+    assert r.plan is None or r.plan.metric != 'gross_profit'
+    assert P('tháng 6/2025 lãi bao nhiêu').plan.metric == 'gross_profit'
+
+
+def test_nhieu_ngay_count():
+    r = P('tháng 6/2025 có nhiêu ngày đạt dthu từ 12.000.000 đồng trở lên')
+    assert r.plan.op == 'count_ge' and r.plan.threshold == 12000000
+
+
+def test_revenue_word_beats_unit_in_product_name():
+    ix = _ix_with(products=[('sp1', 'Máy bơm nước Panasonic GP-129JXK 125W')])
+    r = P2('dthu của Máy bơm nước Panasonic GP-129JXK 125W trong tháng 7 năm 2025 là bao nhiêu?', ix)
+    assert r.plan.metric == 'revenue' and r.plan.filters.get('product') == 'sp1'

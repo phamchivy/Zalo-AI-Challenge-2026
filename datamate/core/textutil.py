@@ -82,12 +82,16 @@ def to_num(v: Any) -> Optional[float]:
     t = m.group(0).rstrip('.,')
     tail = s[m.end():].strip()
     mult = 1.0
-    if re.match(r'^(k|nghin|nghìn|ngan|ngàn)\b', tail):
-        mult = 1e3
-    elif re.match(r'^(tr|triệu|trieu)\b', tail):
-        mult = 1e6
-    elif re.match(r'^(tỷ|ty|tỉ|ti)\b', tail):
-        mult = 1e9
+    um = re.match(r'^(k|nghin|nghìn|ngan|ngàn|tr|triệu|trieu|tỷ|ty|tỉ|ti)(?![a-zà-ỹ])(?!\s*vi\b)', tail)
+    if um:
+        u = um.group(1)
+        mult = 1e3 if u[0] in 'kn' else (1e6 if u.startswith('tr') else 1e9)
+    # viết tắt kiểu "1tr440" / "1tr5" / "1ty2" / "3tr450k": số sau đơn vị là nhóm kế tiếp (440 nghìn, 5 trăm nghìn...)
+    sub = 0.0
+    if um:
+        sm = re.match(r'^\s*(\d{1,3})(?![\d.,])', tail[um.end():])
+        if sm and not re.search(r'[.,]', t):
+            sub = int(sm.group(1)) * mult / (10 ** len(sm.group(1)))
     if mult > 1 and (t.count(',') + t.count('.')) == 1 and re.search(r'[.,]\d{1,3}$', t):
         t = t.replace(',', '.')                       # '2,176tr' = 2.176 triệu
     elif _NUM_GROUPED.match(t):
@@ -98,7 +102,7 @@ def to_num(v: Any) -> Optional[float]:
         last = max(t.rfind('.'), t.rfind(','))
         t = re.sub(r'[.,]', '', t[:last]) + '.' + t[last + 1:]
     try:
-        x = float(t) * mult
+        x = float(t) * mult + sub
     except ValueError:
         return None
     return -x if neg else x

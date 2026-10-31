@@ -23,7 +23,14 @@ _NUM = re.compile(r'\b(bao nhieu|bn|may|tong cong|tong so|so luong|dem|chenh lec
 _BOOL = re.compile(r'\b(co|phai|dung)\b.*\b(khong|ko|hay khong|phai khong|dung khong)\s*$|\bhay khong\s*$|\b(tang|giam) lien tuc\b|\bluon cao hon\b')
 
 
+_ASK = re.compile(r'\b(bao nhieu|bn|bnhiu|bao nhiu)\b')
+_STRONG_MULTI = re.compile(r'\blan luot\b')
+
+
 def expected_types(qn: str) -> Optional[set[str]]:
+    # hỏi nhiều giá trị một lúc ("lần lượt", hai lần "bao nhiêu" nối bằng ",/và") -> chỉ nhận danh sách / bảng
+    if _STRONG_MULTI.search(qn) or len(_ASK.findall(qn)) >= 2:
+        return {T.LIST.value, T.TABLE.value}
     out: set[str] = set()
     pct = bool(_PCT.search(qn))
     if pct:

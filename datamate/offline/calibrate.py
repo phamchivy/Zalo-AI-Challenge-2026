@@ -12,6 +12,7 @@ import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -30,9 +31,11 @@ def _fold(biz: str, k: int) -> int:
     return int(hashlib.md5(biz.encode()).hexdigest(), 16) % k
 
 
-def collect(split: str, run: str) -> list[dict]:
+def collect(split: str, run: str, businesses: Optional[set] = None) -> list[dict]:
     split, run = Path(split), Path(run)
     qs = {q['id']: q for q in _jsonl(split / 'questions.jsonl')}
+    if businesses is not None:
+        qs = {k: q for k, q in qs.items() if q['business_id'] in businesses}
     gold = {a['id']: a for a in _jsonl(split / 'answers.jsonl')}
     sub = {r['id']: r for r in _jsonl(run / 'submission.jsonl')} if (run / 'submission.jsonl').exists() else {}
     rows = []
@@ -94,13 +97,14 @@ def simulate(rows: list[dict], k: int, min_n: int) -> dict:
                      'precision': round(ok / max(ok + w, 1), 4)} for t, (ok, w, n) in res.items()}
 
 
-def calibrate(split: str, run: str, out: str, folds: int = 5, min_n: int = 8) -> dict:
-    rows = collect(split, run)
+def calibrate(split: str, run: str, out: str, folds: int = 5, min_n: int = 8, businesses: Optional[set] = None) -> dict:
+    """businesses: chỉ dùng shop dev (không bao giờ hiệu chỉnh trên holdout)."""
+    rows = collect(split, run, businesses)
     tab = table(rows)
     oof = simulate(rows, folds, min_n)
     best = max(oof.items(), key=lambda kv: kv[1]['PA'])
     doc = {'note': 'sinh bởi datamate calibrate; intent -> độ chính xác của tầng A đo trên train (lower = cận dưới Wilson z=1)',
-           'min_n': min_n, 'folds': folds, 'questions': len(rows), 'recommended_min_score': float(best[0]),
+           'shops': 'dev' if businesses is not None else 'all', 'min_n': min_n, 'folds': folds, 'questions': len(rows), 'recommended_min_score': float(best[0]),
            'oof_by_threshold': oof, 'intents': tab}
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding='utf-8')
