@@ -69,6 +69,11 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
     import sys
     from contextlib import redirect_stdout
     from datetime import date, datetime, timedelta
+    # Máy nhiều nhân (96): numpy/OpenBLAS/DuckDB tự mở 1 luồng mỗi nhân, mỗi luồng giữ vài chục MB bộ nhớ ảo
+    # -> vượt RLIMIT_AS ngay khi import ('cannot allocate memory for thread-local data'). Worker chỉ cần 1–2 luồng.
+    for _k in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS'):
+        os.environ[_k] = '1'
+    os.environ['MALLOC_ARENA_MAX'] = '2'
     try:
         import resource
         lim = int(mem_gb * 1024 ** 3)
@@ -95,7 +100,7 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
             def nosql(q):
                 raise RuntimeError('duckdb chưa cài: dùng pandas')
             return nosql
-        con = duckdb.connect()
+        con = duckdb.connect(config={'threads': 2})
         registered = set()
 
         names = {}
@@ -275,6 +280,9 @@ class KernelPool:
         parent, child = self._ctx.Pipe()
         env_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         os.environ.setdefault('PYTHONPATH', env_root)
+        # glibc đọc MALLOC_ARENA_MAX lúc tiến trình khởi động -> phải đặt trước khi spawn worker
+        for _k, _v in (('MALLOC_ARENA_MAX', '2'), ('OMP_NUM_THREADS', '1'), ('OPENBLAS_NUM_THREADS', '1'), ('MKL_NUM_THREADS', '1')):
+            os.environ.setdefault(_k, _v)
         p = self._ctx.Process(target=_worker_main, args=(child, pack, self.mem_gb, self.out_limit), daemon=True)
         p.start()
         child.close()

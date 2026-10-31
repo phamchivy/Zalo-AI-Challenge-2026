@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -66,17 +67,26 @@ def _key(cat) -> str:
 
 
 def _norm(s: str) -> str:
-    return ' '.join(str(s).strip().lower().split())
+    """So tên bảng / cột lỏng: bỏ dấu, hoa thường, đuôi file, ký tự `tables['..']`, khoảng trắng / gạch."""
+    from datamate.core.textutil import fold
+    s = re.sub(r"^\s*(tables|canon)\s*\[\s*['\"]|['\"]\s*\]\s*$", '', str(s))
+    s = re.sub(r'\.(xlsx|xls|csv|sqlite|db|json)\b', '', s, flags=re.I)
+    return re.sub(r'[\W_]+', ' ', fold(s)).strip()
 
 
 def _find_table(cat, name: str) -> Optional[str]:
     if name in cat.raw:
         return name
     n = _norm(name)
+    if not n:
+        return None
     for t in cat.raw:
-        if _norm(t) == n or _norm(t.split('::')[-1]) == n or _norm(t.split('::')[0]) == n:
+        parts = [t] + t.split('::')
+        if any(_norm(p) == n for p in parts):
             return t
-    return None
+    # LLM viết "file::sheet" theo kiểu khác (vd "file - sheet", chỉ tên sheet có thêm chữ): chấp nhận nếu khớp duy nhất
+    cand = [t for t in cat.raw if n in _norm(t) or _norm(t.split('::')[-1]) in n]
+    return cand[0] if len(cand) == 1 else None
 
 
 def _find_col(df, col: str) -> Optional[str]:
