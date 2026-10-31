@@ -85,6 +85,12 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
     pd.set_option('display.width', 200)
     pd.set_option('display.max_columns', 30)
     pd.set_option('display.max_colwidth', 40)
+    # pandas 3 (Copy-on-Write): `df[c].fillna(..., inplace=True)` không sửa df, chỉ in cảnh báo ra stderr (agent không
+    # thấy) -> kết quả sai âm thầm. Biến thành lỗi để agent đọc được trong kết quả chạy và viết lại.
+    import warnings
+    _cae = getattr(pd.errors, 'ChainedAssignmentError', None)
+    if _cae is not None:
+        warnings.simplefilter('error', _cae)
     from datamate.core.textutil import fold, month_end, parse_date, to_num
     from datamate.reasoning.executor import round_money
     with open(pack_path, 'rb') as f:
@@ -181,7 +187,11 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
             # chỉ giữ phần liên quan tới code của agent
             keep = [ln for ln in tb.splitlines() if ('File "<cell>"' in ln or not ln.startswith('  File'))
                     and 'exec(compile(' not in ln and not set(ln.strip()) <= set('~^')]
-            res = {'status': 'error', 'error': '\n'.join(keep)[-1800:]}
+            err = '\n'.join(keep)
+            if 'ChainedAssignmentError' in err:
+                err = err.split('\n')[0] + ('\nChainedAssignmentError: pandas 3 không sửa được bảng qua df[col].method(..., '
+                                            'inplace=True). Viết lại: df[col] = df[col].method(...)')
+            res = {'status': 'error', 'error': err[-1800:]}
         finally:
             signal.alarm(0)
         out = buf.getvalue()

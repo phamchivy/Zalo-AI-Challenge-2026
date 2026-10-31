@@ -9,3 +9,8 @@
 | Đĩa nhỏ | Báo lỗi giữa chừng khi tải mô hình | Kiểm tra dung lượng đĩa trước (khoảng 35 GB mỗi mô hình + 15 GB), thiếu thì dừng ngay. Bỏ qua bước cài vLLM nếu template đã có sẵn |
 
 Test: 49 passed, tầng A không đổi.
+
+## v2.0.2
+| Lỗi | Trước | Sau |
+|---|---|---|
+| Code LLM sửa bảng "không ăn" | LLM viết kiểu pandas cũ `df[col].fillna(0, inplace=True)`. Với pandas 3 (Copy-on-Write), lệnh này không sửa gì, chỉ in cảnh báo `ChainedAssignmentError` ra màn hình mà agent không thấy, nên kết quả sai âm thầm | Kernel biến cảnh báo này thành lỗi, kèm hướng dẫn cách viết lại để agent đọc được và sửa ở bước sau. Prompt thêm 1 dòng: không dùng `inplace=True` trên cột |

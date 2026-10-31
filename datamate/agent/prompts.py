@@ -41,6 +41,7 @@ sql(query) -> DataFrame: DuckDB trên các bảng canon (lines, orders, products
 fold(s) (bỏ dấu + chữ thường, để so khớp tên), to_num(s), parse_date(s), month_end(y, m), round_money(x)
 answer(type, value, reason)
 Không đọc / ghi file, không gọi mạng. Mỗi khối code chạy tối đa {timeout} giây.
+pandas 3 (Copy-on-Write): không dùng inplace=True trên cột; luôn gán lại, vd df[col] = df[col].fillna(0).
 
 MÔ TẢ canon
 {canon_doc}
