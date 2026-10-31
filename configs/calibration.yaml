@@ -1,0 +1,330 @@
+note: sinh bởi datamate calibrate; intent -> độ chính xác của tầng A đo trên train
+  (lower = cận dưới Wilson z=1)
+shops: dev
+min_n: 8
+folds: 5
+questions: 2366
+recommended_min_score: 0.0
+oof_by_threshold:
+  '0.0':
+    PA: 0.9003
+    correct: 2193
+    wrong: 63
+    precision: 0.9721
+  '0.5':
+    PA: 0.8698
+    correct: 2092
+    wrong: 34
+    precision: 0.984
+  '0.6':
+    PA: 0.8686
+    correct: 2079
+    wrong: 24
+    precision: 0.9886
+  '0.7':
+    PA: 0.8724
+    correct: 2076
+    wrong: 12
+    precision: 0.9943
+  '0.75':
+    PA: 0.8745
+    correct: 2076
+    wrong: 7
+    precision: 0.9966
+  '0.8':
+    PA: 0.8736
+    correct: 2070
+    wrong: 3
+    precision: 0.9986
+  '0.85':
+    PA: 0.8694
+    correct: 2060
+    wrong: 3
+    precision: 0.9985
+  '0.9':
+    PA: 0.8457
+    correct: 2001
+    wrong: 0
+    precision: 1.0
+  '0.95':
+    PA: 0.7887
+    correct: 1866
+    wrong: 0
+    precision: 1.0
+intents:
+  aov:
+    n: 138
+    ok: 138
+    wrong: 0
+    precision: 1.0
+    lower: 0.9928
+  best_day:
+    n: 86
+    ok: 86
+    wrong: 0
+    precision: 1.0
+    lower: 0.9885
+  best_month:
+    n: 12
+    ok: 12
+    wrong: 0
+    precision: 1.0
+    lower: 0.9231
+  cancel_count:
+    n: 81
+    ok: 80
+    wrong: 1
+    precision: 0.9877
+    lower: 0.9681
+  cancel_rate:
+    n: 112
+    ok: 112
+    wrong: 0
+    precision: 1.0
+    lower: 0.9912
+  compare_period:
+    n: 141
+    ok: 141
+    wrong: 0
+    precision: 1.0
+    lower: 0.993
+  compare_shift:
+    n: 20
+    ok: 20
+    wrong: 0
+    precision: 1.0
+    lower: 0.9524
+  customer_thr:
+    n: 23
+    ok: 23
+    wrong: 0
+    precision: 1.0
+    lower: 0.9583
+  customers:
+    n: 2
+    ok: 0
+    wrong: 2
+    precision: 0.0
+    lower: 0.0
+  day_count_thr:
+    n: 14
+    ok: 14
+    wrong: 0
+    precision: 1.0
+    lower: 0.9333
+  dead_stock:
+    n: 18
+    ok: 18
+    wrong: 0
+    precision: 1.0
+    lower: 0.9474
+  debt_aging:
+    n: 5
+    ok: 2
+    wrong: 3
+    precision: 0.4
+    lower: 0.216
+  debt_collected:
+    n: 34
+    ok: 21
+    wrong: 13
+    precision: 0.6176
+    lower: 0.5321
+  debt_customers:
+    n: 17
+    ok: 3
+    wrong: 14
+    precision: 0.1765
+    lower: 0.1028
+  debt_flow:
+    n: 20
+    ok: 14
+    wrong: 6
+    precision: 0.7
+    lower: 0.59
+  debt_over_days:
+    n: 6
+    ok: 6
+    wrong: 0
+    precision: 1.0
+    lower: 0.8571
+  debt_top:
+    n: 19
+    ok: 11
+    wrong: 8
+    precision: 0.5789
+    lower: 0.4645
+  debt_total:
+    n: 13
+    ok: 7
+    wrong: 6
+    precision: 0.5385
+    lower: 0.4025
+  delivery_count:
+    n: 16
+    ok: 16
+    wrong: 0
+    precision: 1.0
+    lower: 0.9412
+  expiry_capital:
+    n: 1
+    ok: 1
+    wrong: 0
+    precision: 1.0
+    lower: 0.5
+  expiry_count:
+    n: 1
+    ok: 1
+    wrong: 0
+    precision: 1.0
+    lower: 0.5
+  expiry_list:
+    n: 2
+    ok: 2
+    wrong: 0
+    precision: 1.0
+    lower: 0.6667
+  gross_profit:
+    n: 6
+    ok: 6
+    wrong: 0
+    precision: 1.0
+    lower: 0.8571
+  inventory_value:
+    n: 1
+    ok: 1
+    wrong: 0
+    precision: 1.0
+    lower: 0.5
+  lot_nearest:
+    n: 5
+    ok: 5
+    wrong: 0
+    precision: 1.0
+    lower: 0.8333
+  order_count:
+    n: 146
+    ok: 146
+    wrong: 0
+    precision: 1.0
+    lower: 0.9932
+  order_count_thr:
+    n: 22
+    ok: 22
+    wrong: 0
+    precision: 1.0
+    lower: 0.9565
+  price_effect:
+    n: 67
+    ok: 67
+    wrong: 0
+    precision: 1.0
+    lower: 0.9853
+  product_count:
+    n: 17
+    ok: 17
+    wrong: 0
+    precision: 1.0
+    lower: 0.9444
+  purchase_minus_sales:
+    n: 3
+    ok: 3
+    wrong: 0
+    precision: 1.0
+    lower: 0.75
+  purchase_price:
+    n: 55
+    ok: 55
+    wrong: 0
+    precision: 1.0
+    lower: 0.9821
+  purchase_supplier:
+    n: 7
+    ok: 7
+    wrong: 0
+    precision: 1.0
+    lower: 0.875
+  purchase_total:
+    n: 34
+    ok: 34
+    wrong: 0
+    precision: 1.0
+    lower: 0.9714
+  qty_sold:
+    n: 151
+    ok: 150
+    wrong: 1
+    precision: 0.9934
+    lower: 0.9828
+  rank_def:
+    n: 4
+    ok: 4
+    wrong: 0
+    precision: 1.0
+    lower: 0.8
+  revenue:
+    n: 585
+    ok: 580
+    wrong: 5
+    precision: 0.9915
+    lower: 0.9867
+  series:
+    n: 11
+    ok: 11
+    wrong: 0
+    precision: 1.0
+    lower: 0.9167
+  share:
+    n: 106
+    ok: 106
+    wrong: 0
+    precision: 1.0
+    lower: 0.9907
+  stock_qty:
+    n: 1
+    ok: 1
+    wrong: 0
+    precision: 1.0
+    lower: 0.5
+  top_customer:
+    n: 73
+    ok: 73
+    wrong: 0
+    precision: 1.0
+    lower: 0.9865
+  top_product:
+    n: 68
+    ok: 68
+    wrong: 0
+    precision: 1.0
+    lower: 0.9855
+  top_staff:
+    n: 4
+    ok: 4
+    wrong: 0
+    precision: 1.0
+    lower: 0.8
+  trend_bool:
+    n: 16
+    ok: 15
+    wrong: 1
+    precision: 0.9375
+    lower: 0.8477
+  unit_price:
+    n: 50
+    ok: 50
+    wrong: 0
+    precision: 1.0
+    lower: 0.9804
+  values_channel:
+    n: 4
+    ok: 4
+    wrong: 0
+    precision: 1.0
+    lower: 0.8
+  values_payment:
+    n: 10
+    ok: 10
+    wrong: 0
+    precision: 1.0
+    lower: 0.9091

@@ -1,0 +1,88 @@
+created: '2026-10-31'
+method: holdout = 8 shop chưa xem, rải đều theo (ngành, họ dữ liệu), thứ tự md5(business_id)
+holdout:
+- biz_103
+- biz_108
+- biz_113
+- biz_114
+- biz_115
+- biz_121
+- biz_125
+- biz_126
+dev:
+- biz_101
+- biz_102
+- biz_104
+- biz_105
+- biz_106
+- biz_107
+- biz_109
+- biz_110
+- biz_111
+- biz_112
+- biz_116
+- biz_117
+- biz_118
+- biz_119
+- biz_120
+- biz_122
+- biz_123
+- biz_124
+- biz_127
+- biz_128
+- biz_129
+- biz_130
+seen:
+- biz_101
+- biz_102
+- biz_104
+- biz_105
+- biz_106
+- biz_109
+- biz_110
+- biz_112
+- biz_116
+- biz_117
+- biz_122
+- biz_123
+- biz_124
+- biz_127
+- biz_129
+- biz_130
+notes:
+- KHÔNG mở errors/logs của shop holdout, KHÔNG sửa code theo câu hỏi của holdout.
+- Chỉ báo cáo PA tổng + PA theo kiểu đáp án của holdout; nếu đã lỡ xem lỗi holdout
+  -> chuyển shop đó sang dev và chạy lại make-split với --seen bổ sung.
+holdout_profile:
+  biz_103:
+    industry: nha_hang
+    family: xlsx:2-3
+    questions: 119
+  biz_108:
+    industry: nha_hang
+    family: xlsx:4+
+    questions: 119
+  biz_113:
+    industry: vat_lieu
+    family: xlsx:1
+    questions: 40
+  biz_114:
+    industry: vat_lieu
+    family: csv:1
+    questions: 40
+  biz_115:
+    industry: vat_lieu
+    family: xlsx:4+
+    questions: 118
+  biz_121:
+    industry: nha_thuoc
+    family: xlsx:2-3
+    questions: 118
+  biz_125:
+    industry: nha_hang
+    family: csv:1
+    questions: 40
+  biz_126:
+    industry: nha_hang
+    family: xlsx:1
+    questions: 40
