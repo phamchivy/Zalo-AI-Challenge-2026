@@ -23,10 +23,25 @@ TEEN = {
     'bill': 'don', 'bills': 'don', 'order': 'don', 'orders': 'don', 'hd': 'hoa don',
     'ncc': 'nha cung cap', 'nv': 'nhan vien', 'sl': 'so luong', 'gtri': 'gia tri', 'gt': 'gia tri',
     'thg': 'thang', 'th': 'thang', 'q': 'quy',
+    # chat / phương ngữ (từ vựng tiếng Việt chung, không lấy từ câu hỏi của tập nào)
+    'dh': 'don hang', 'đh': 'don hang', 'cko': 'cho', 'kua': 'cua', 'trog': 'trong', 'trg': 'trong', 'lne': 'len',
+    'wa': 'qua', 'jum': 'gium', 'dum': 'gium', 'dup': 'giup', 'jup': 'giup', 'mik': 'minh', 'mk': 'minh',
+    'mjk': 'minh', 'hem': 'khong', 'khum': 'khong', 'rui': 'roi', 'rooi': 'roi',
+    'ngaynao': 'ngay nao', 'thangnao': 'thang nao', 'mathang': 'mat hang', 'sanpham': 'san pham', 'khachhang': 'khach hang',
+    'bnhui': 'bao nhieu', 'bnhi': 'bao nhieu', 'bao nheiu': 'bao nhieu', 'nheiu': 'nhieu', 'bna': 'ban duoc',
+    'cat hang': 'nhap hang', 'lay hang': 'nhap hang', 'wan': 'quan', 'duco': 'duoc', 'kac': 'cac', 'qa': 'qua',
+    'nguog': 'nguong', 'bq': 'binh quan', 'bit': 'biet', 'tih': 'tinh', 'kon': 'con', 'nhut': 'nhat', 'ngui': 'nguoi', 'len hay xuong': 'tang hay giam', 'len xuong': 'tang hoac giam',
+}
+# phương ngữ phụ thuộc ngữ cảnh: (từ đứng trước) + từ -> thay thế
+_DIALECT_AFTER = {
+    'mo': ({'khach', 'ngay', 'hom', 'thang', 'mon', 'hang', 'nhom', 'tuan', 'quy', 'nam', 'loai', 'ben', 'kenh', 'thuoc', 'xe'}, 'nao'),
+    'ni': ({'hom', 'bua', 'thang', 'tuan', 'nam', 'quy', 'luc', 'ngay'}, 'nay'),
+    'chu': ({'toi', 'den', 'tu', 'bay'}, 'nay'),
 }
 # từ đệm chỉ bỏ ở đầu / cuối câu ('e' giữa câu có thể là 'ế')
-START_FILLERS = {'e', 'ee', 'oi', 'a', 'z', 'v', 'ei', 'ey', 'alo'}
+START_FILLERS = {'e', 'ee', 'oi', 'a', 'z', 'v', 'ei', 'ey', 'alo', 'ua', 'ad', 'admin', 'shop', 'tiem', 'nho', 'xin'}
 END_FILLERS = {'z', 'v', 'vay', 'a', 'ha', 'nhi', 'nha', 'ta', 'ne', 'hen', 'ak', 'ah', 'e', 'ee', 'oi', 'do', 'the', 'ho', 'nhe',
+               'zi', 'zay', 'dzay', 'rua', 'nghen', 'nhen', 'nhoa',
                'chua', 'day', 'ban'}
 # bảo vệ: không phá các từ thật
 TELEX_WHITELIST = {'pos', 'cod', 'vs', 'ios', 'gas', 'plus', 'max', 'box', 'tax', 'mix', 'kids', 'ps', 'top', 'its', 'order', 'orders',
@@ -77,6 +92,16 @@ def qnorm(text: str) -> str:
         out.append(TEEN.get(tok, tok))
         i += 1
     out = [x for x in out if x]
+    for i in range(1, len(out)):
+        rule = _DIALECT_AFTER.get(out[i])
+        if rule and out[i - 1].split()[-1] in rule[0]:
+            out[i] = rule[1]
+        elif out[i] == 'cu' and re.fullmatch(r'\d+([.,]\d+)?', out[i - 1]):      # '11 củ' = 11 triệu
+            out[i] = 'trieu'
+        elif out[i] == 'mi' and i + 1 < len(out) and out[i + 1] in ('%', 'phan', 'don', 'ngay', 'khach'):   # 'mí %' = mấy %
+            out[i] = 'may'
+        elif out[i] == 'bua' and out[i - 1].split()[-1] in ('nhieu', 'may', 'so'):     # 'mấy bữa' = mấy ngày
+            out[i] = 'ngay'
     while out and out[0] in START_FILLERS:
         out = out[1:]
     while len(out) > 1 and out[-1] in END_FILLERS and not (out[-1] == 'e' and out[-2] in ('bi', 'hang', 'mat', 'la', 'do')) \
@@ -85,6 +110,8 @@ def qnorm(text: str) -> str:
     t = ' '.join(out)
     # cụm hay gặp
     t = re.sub(r'\bthang truoc do\b', 'thang lien truoc', t)
+    t = re.sub(r'\b(toi|den) (bay )?(gio|nay)\b(?! (thi|la))', r'\1 het hom nay', t)   # 'tới giờ', 'tới bây giờ', 'tới bấy nay'
+    t = re.sub(r'\bbay nay\b', 'nay', t)
     t = re.sub(r'\bbua (nay|ni)\b', 'hom nay', t)
     t = re.sub(r'\bbua (qua|wa|truoc)\b', 'hom qua', t)
     t = re.sub(r'\b(hom|bua) kia\b', 'hom kia', t)

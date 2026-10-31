@@ -29,7 +29,7 @@ def understand(q: Question, catalog, kb, ix: Optional[EntityIndex] = None) -> Un
     canon = catalog.canon
     ix = ix or EntityIndex()
     parse = parse_question(qn, qf, q.as_of_date, tp, ix, canon.caps, canon.date_min, canon.date_max, kb.calendar,
-                           rules=getattr(kb, 'rules', None))
+                           rules=getattr(kb, 'rules', None), raw=q.question)
     ctx = QContext(q=q, fq=qf, norm_question=qn, times=tp.ranges, intent=parse.intent, entities=parse.entities)
     et = expected_types(qn)
     ctx.expected_types = sorted(et) if et else None

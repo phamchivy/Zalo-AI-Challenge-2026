@@ -46,6 +46,28 @@ class EntityIndex:
     ingredients: dict[str, str] = field(default_factory=dict)
     base_units: set[str] = field(default_factory=set)
 
+    def name_bigrams(self) -> set:
+        """Cặp từ liền nhau trong tên hàng / nhóm hàng của shop (để nhận ra tên hàng nhắc trong câu mà chưa nối được)."""
+        if getattr(self, '_pb', None) is None:
+            pb = set()
+            for _, _, nf, _ in self.products:
+                t = re.sub(r'[^a-z0-9 ]', ' ', nf).split()
+                pb.update(zip(t, t[1:]))
+            for f in self.categories:
+                t = re.sub(r'[^a-z0-9 ]', ' ', f).split()
+                pb.update(zip(t, t[1:]))
+            object.__setattr__(self, '_pb', pb)
+        return self._pb
+
+    def customer_bigrams(self) -> set:
+        if getattr(self, '_cb', None) is None:
+            cb = set()
+            for _, _, nf in self.customers:
+                t = re.sub(r'[^a-z0-9 ]', ' ', nf or '').split()
+                cb.update(zip(t, t[1:]))
+            object.__setattr__(self, '_cb', cb)
+        return self._cb
+
     @classmethod
     def from_catalog(cls, cat) -> 'EntityIndex':
         staff = None

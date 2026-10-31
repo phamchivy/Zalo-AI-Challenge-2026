@@ -34,7 +34,7 @@ TIER_B_ONLY = [
     ('lots', r'\b(lo nao|so lo|theo lo)\b'),
 ]
 
-MONEY = r'(\d[\d.,]*)\s*(k|nghin|ngan|tr|trieu|d|dong|vnd)?\b'
+MONEY = r'(\d[\d.,]*)\s*((?:k|nghin|ngan|tr|trieu|ty|cu|d|dong|vnd)(?:\d{1,3}k?)?)?\b'   # '3tr7', '1tr500'
 REV_WORDS = r'\b(doanh thu|doanh so|tien hang|tien ban|thu ve|thu duoc|ban duoc bao nhieu tien|tien)\b'
 # hỏi phần trăm: '%' KHÔNG đứng sau chữ số ('0,1%' trong tên hàng không phải câu hỏi %)
 _PCT = re.compile(r'(?<![\d.,])%|\bphan tram\b|\b(ti|ty) le\b|\b(ti|ty) trong\b')
@@ -78,8 +78,61 @@ GENERIC |= {'doanh', 'thu', 'tien', 'bao', 'nhieu', 'hom', 'nay', 'qua', 'thang'
             'hoac'}
 
 
-def unexplained(qn: str, linked_names: list[str], tp: TimeParse) -> list[str]:
-    """Từ trong câu không thuộc từ vựng chung, không thuộc thời gian/thực thể đã khớp -> dấu hiệu thiếu thực thể."""
+# từ đệm, xưng hô, tự xưng của cửa hàng, từ hỏi lịch sự: tiếng Việt chung, không mang điều kiện lọc
+FILLERS = {'tiem', 'shop', 'quan', 'minh', 'em', 'anh', 'ad', 'admin', 'oi', 'nha', 'nhe', 'nghen', 'nhen', 'hen', 'ne', 'zi',
+           'zay', 'dzay', 'vay', 'rua', 'ha', 'ho', 'nhi', 'ta', 'ak', 'ah', 'xin', 'nho', 'gium', 'giup', 'dum', 'coi', 'xem',
+           'check', 'thi', 'la', 'ma', 'luon', 'roi', 'ua', 'alo', 'plz', 'pls', 'cam', 'on', 'ok', 'oke', 'voi', 'tung', 'tat',
+           'het', 'da', 'vua', 'cho', 'biet', 'hoi', 'nua', 'tinh', 'dem', 'ra', 'duoc',
+           'bay', 'gio', 'hien', 'luc', 'xiu', 'ti', 'dum', 'cai', 'giua', 'trong', 'ben', 'chung',
+           'tiep', 'lam', 'sao', 'nhu', 'the', 'nao', 'mo', 'ni', 'chu', 'ui', 'uh', 'um', 'hihi', 'haha', 'nhoa', 'kia',
+           'dza', 'za', 'thank', 'thanks', 'trieu', 'nghin', 'ngan', 'ty', 'hi', 'hello', 'di'}
+
+# từ chức năng / nghiệp vụ cốt lõi (viết tay, KHÔNG lấy từ câu hỏi train): cặp từ chỉ gồm các từ này không coi là tên hàng
+CORE_WORDS = {
+    'doanh', 'thu', 'tien', 'bao', 'nhieu', 'hom', 'nay', 'qua', 'thang', 'nam', 'quy', 'tuan', 'ngay', 'gio', 'cua', 'hang',
+    'ban', 'duoc', 'don', 'khach', 'mat', 'san', 'pham', 'nhat', 'la', 'cho', 'toi', 'trong', 'tong', 'cong', 'so', 'may',
+    'cac', 'nao', 'gi', 'ai', 'co', 'khong', 'va', 'voi', 'tu', 'den', 'het', 'tai', 'theo', 'tinh', 'ca', 'sang', 'chieu',
+    'toi', 'gia', 'tri', 'trung', 'binh', 'quan', 'moi', 'mot', 'ra', 'vao', 'lan', 'luot', 'truoc', 'sau', 'tang', 'giam',
+    'hon', 'cao', 'thap', 'it', 'dat', 'tro', 'len', 'tren', 'duoi', 'chiem', 'phan', 'tram', 'nhom', 'loai', 'dau', 'cuoi',
+    'gan', 'day', 'cung', 'ky', 'nhap', 'tra', 'no', 'huy', 'giao', 'dien', 'thoai', 'chuyen', 'khoan', 'vi', 'online',
+    'nhan', 'vien', 'ke', 'lai', 'gop', 'loi', 'nhuan', 'ton', 'kho', 'lo', 'han', 'su', 'dung', 'muc', 'thanh', 'toan',
+    'so', 'luong', 'don', 'vi', 'le', 'chan', 'size', 'top', 'it', 'kem', 'bang', 'nhu', 'tat', 'nhung', 'them', 'bot',
+    'tet', 'mung', 'bua', 'khi', 'ke', 'tu'}
+
+# token chữ + số giống tên hàng ('100g', '25w', 'd10', '1x2', '180ml') — trừ tiền / giờ / kỳ ('500k', '5h', 'q1', 'th3', '9/25')
+_ALNUM = re.compile(r'^(?=[a-z0-9.\-]*\d)(?=[a-z0-9.\-]*[a-z])[a-z0-9.\-]+$')
+_NOT_ENTITY_ALNUM = re.compile(
+    r'^(\d[\d.,]*(k|tr|trieu|ty|ti|d|dong|vnd|h|gio|p|ph|phut|ngay|thang|th|nam|tuan|lan|don|khach|ng|%)(\d{1,3}k?)?'
+    r'|(th|t|q|quy|thang|nam|tuan|w|n|ngay|ca)\d+([/.\-]\d+)*|\d+h\d*)$')
+_SENT_END = re.compile(r'[.?!:;]$')
+
+
+def _cap_tokens(raw: str) -> list[str]:
+    """Từ viết hoa giữa câu trong câu gốc (tên riêng: tên hàng, tên khách, kênh...). Bỏ từ đầu câu và chữ tắt ≤3 ký tự."""
+    out = []
+    words = raw.split()
+    for i, w in enumerate(words):
+        if i == 0 or _SENT_END.search(words[i - 1]):
+            continue
+        w2 = re.sub(r'^[^\w]+|[^\w]+$', '', w)
+        if not w2 or not any(ch.isupper() for ch in w2):
+            continue
+        if w2.isupper() and len(w2) <= 3:
+            continue
+        out.append(EL.fold(w2))
+    return out
+
+
+def unexplained(qn: str, linked_names: list[str], tp: TimeParse, raw: Optional[str] = None,
+                ix: Optional['EL.EntityIndex'] = None) -> list[str]:
+    """Dấu hiệu câu nhắc tới một thực thể mà parser CHƯA nối được với dữ liệu (nếu bỏ qua sẽ trả con số không lọc).
+
+    Không dùng từ vựng đóng lấy từ câu hỏi train (public/private viết khác: "tiệm", "mik", "mô", "rứa"...). Chỉ tính:
+      1. từ viết hoa giữa câu trong câu gốc (tên riêng) chưa được thực thể nào phủ;
+      2. token chữ + số kiểu tên hàng ('100g', '25w', 'd10') chưa được phủ;
+      3. cặp từ liền nhau có trong TÊN HÀNG / NHÓM HÀNG của chính shop này mà chưa nối (vd 'ca phe', 'nuoc suoi');
+      4. sau 'khách' là cặp từ có trong TÊN KHÁCH của shop mà chưa nối được khách.
+    Từ đệm, tiếng lóng, phương ngữ không bị phạt."""
     from datamate.understand.normalize import telex_fix
     cover = set()
     for n in linked_names:
@@ -88,10 +141,40 @@ def unexplained(qn: str, linked_names: list[str], tp: TimeParse) -> list[str]:
             cover.add(telex_fix(t))
     for r in tp.ranges:
         cover.update((r.expr or '').split())
-    out = []
-    for t in qn.split():
-        if re.fullmatch(r'[a-z]+', t) and len(t) >= 2 and t not in GENERIC and t not in cover:
+    toks = qn.split()
+    out: list[str] = []
+
+    def add(t):
+        if t not in cover and t not in out:
             out.append(t)
+
+    # từ chưa hiểu: không thuộc từ vựng chung, từ đệm / xưng hô / tự xưng của shop, thời gian hay thực thể đã nối
+    for t in toks:
+        if re.fullmatch(r'[a-z]+', t) and len(t) >= 2 and t not in GENERIC and t not in FILLERS and t not in CORE_WORDS:
+            add(t)
+    if raw:
+        for t in _cap_tokens(raw):
+            for x in t.split():
+                if x not in CORE_WORDS and x not in FILLERS and not _NOT_ENTITY_ALNUM.match(x) and len(x) >= 2:
+                    add(x)
+    for t in toks:
+        if _ALNUM.match(t) and not _NOT_ENTITY_ALNUM.match(t) and not re.fullmatch(r'[\d./\-]+', t):
+            add(t)
+    if ix is not None:
+        pb = ix.name_bigrams()
+        for a, b in zip(toks, toks[1:]):
+            core = CORE_WORDS | FILLERS
+            if (a, b) in pb and not (a in core and b in core) and a not in cover and b not in cover:
+                add(a)
+                add(b)
+        cb = ix.customer_bigrams()
+        for i, t in enumerate(toks):
+            if t != 'khach':
+                continue
+            j = i + 2 if i + 1 < len(toks) and toks[i + 1] == 'hang' else i + 1
+            if j + 1 < len(toks) and (toks[j], toks[j + 1]) in cb and toks[j] not in cover:
+                add(toks[j])
+                add(toks[j + 1])
     return out
 
 
@@ -155,6 +238,8 @@ def _money_threshold(qn: str) -> Optional[tuple[float, bool]]:
     v = to_num(m[1] + (m[2] or ''))
     if v is None:
         return None
+    if (m[2] or '').startswith('cu'):            # '11 củ' = 11 triệu
+        v = to_num(m[1] + 'tr' + m[2][2:])
     if m[2] in ('k', 'nghin', 'ngan') and v < 1000:
         v *= 1000
     strict = bool(re.search(r'\b(tren|hon|qua|lon hon|>)\s+' + re.escape(m[1]), qn)) and 'tro len' not in qn
@@ -172,7 +257,7 @@ def _int_threshold(qn: str, unit: str) -> Optional[tuple[int, bool]]:
 
 def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIndex, caps: set[str],
                    data_min: Optional[date], data_max: Optional[date], cal=None,
-                   rules: Optional[RuleSet] = None) -> ParseResult:
+                   rules: Optional[RuleSet] = None, raw: Optional[str] = None) -> ParseResult:
     rules = rules or RuleSet()
     # ---- 0. câu chạm luật lạ của rulebook -> không đoán
     unk = rules.touches_unknown(qn)
@@ -274,10 +359,11 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
                     filters={**filters, **kw.pop('extra_filters', {})}, source='rule', **kw)
 
     linked = [d for _, d, _ in prods] + [x for x in (cat, cg, ingr) if x] + ([cust[1]] if cust else []) + ([staff] if staff else [])
+    linked += list(chans) + [a for v in pays for a in [v] + list(EL.PAYMENT_SYN.get(v, []))]
     for k_, v_ in ix.staff.items():
         if staff and v_ == staff:
             linked.append(k_)
-    unk_toks = unexplained(qn, linked, tp)
+    unk_toks = unexplained(qn, linked, tp, raw=raw, ix=ix)
     if unk_toks:
         ents['unexplained'] = unk_toks
     feats = {'unexplained': len(unk_toks), 'has_period': bool(P)}
@@ -307,7 +393,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         return None
 
     # ---- 1. xu hướng
-    if re.search(r'\b(tang lien tuc|luon cao hon|lien tuc tang|thang sau .* cao hon)\b', qn):
+    if re.search(r'\b(tang lien tuc|luon cao hon|luon hon|lien tuc tang|thang sau .* (cao )?hon)\b', qn):
         met = base_metric()
         if met is None:
             return none('trend_bool', 'no metric keyword')
@@ -502,6 +588,11 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         return res('values_product', mk(met, 'values', split_by='product', split_values=[p[0] for p in prods]), 0.75)
     if len(P) >= 2 and ('series' in tp.flags or re.search(r'\b(moi thang|tung thang|lan luot|moi ky|tung quy|moi quy)\b', qn)):
         return res('series', mk(met, 'series', periods=P))
+    disj = sorted({(p.start, p.end): p for p in P}.values(), key=lambda p: P.index(p))
+    if len(disj) >= 2 and len({p.granularity for p in disj}) == 1 and \
+            all(a.end < b.start or b.end < a.start for i, a in enumerate(disj) for b in disj[i + 1:]):
+        # liệt kê nhiều kỳ rời nhau, cùng loại, không so sánh / xếp hạng ("doanh thu th7, th8, th9") -> danh sách theo thứ tự
+        return res('series', mk(met, 'series', periods=disj), 0.75)
 
     # ---- 12. giá trị đơn lẻ
     if met == 'qty':
