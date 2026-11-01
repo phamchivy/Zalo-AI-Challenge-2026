@@ -25,3 +25,8 @@ Test: 49 passed, tầng A không đổi.
 | Lỗi | Trước | Sau |
 |---|---|---|
 | Cảnh báo từ code LLM (chia cho 0 ra NaN, ngày không rõ định dạng ...) | In ra console, làm rối log. Agent không thấy nên có thể trả lời NaN hoặc ngày đọc sai | Kernel thu các cảnh báo, gộp trùng, lấy tối đa 4 dòng và đưa vào kết quả chạy dưới mục "CẢNH BÁO:" để agent tự sửa. Console sạch |
+
+## v2.0.5
+| Lỗi | Trước | Sau |
+|---|---|---|
+| Vẫn vượt 32k token, cắt không giảm (83 550 ký tự cả 3 lần gửi lại) | Phần **câu hỏi** không bao giờ bị cắt, mà danh sách "thực thể đã khớp" có thể chứa hàng nghìn sản phẩm. vLLM chỉ báo "ít nhất 32 769 token" (cận dưới), nên tỉ lệ ký tự/token không giảm | Mỗi danh sách thực thể giữ tối đa 15 phần tử, toàn bộ tối đa 1 500 ký tự. Khi ép cho vừa, cắt thêm phần câu hỏi và 2 message cuối nếu vẫn còn quá dài. Lỗi chỉ cho cận dưới thì giảm tỉ lệ ký tự/token 25% mỗi lần. Log in kích thước từng message |

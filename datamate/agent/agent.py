@@ -76,7 +76,9 @@ def _fit(msgs: list[dict], max_chars: int) -> int:
             break
         if len(msgs[i]['content']) > 250:
             msgs[i]['content'] = msgs[i]['content'][:200] + '\n... (đã rút gọn)'
-    for idx, keep_min in ((1, 4000), (0, 6000)):
+    for idx, keep_min in ((1, 4000), (0, 6000), (3, 1500)) + tuple((j, 800) for j in range(len(msgs) - 2, len(msgs))):
+        if idx >= len(msgs):
+            continue
         over = total() - max_chars
         if over <= 0:
             break
@@ -178,11 +180,18 @@ class Agent(Strategy):
 
     def question_block(self, u, style: str) -> str:
         times = '; '.join(f'{r.expr or r.label}: {r.start} .. {r.end}' for r in u.ctx.times) or '(không đọc được, tự xác định)'
-        ents = {k: v for k, v in (u.ctx.entities or {}).items() if k != 'unexplained'}
+        ents = {}
+        for k, v in (u.ctx.entities or {}).items():      # danh sách thực thể có thể rất dài (cả nghìn sản phẩm khớp)
+            if k == 'unexplained':
+                continue
+            if isinstance(v, (list, tuple, set)):
+                v = list(v)
+                v = v[:15] + ([f'... (+{len(v) - 15})'] if len(v) > 15 else [])
+            ents[k] = v
         exp = ', '.join(u.ctx.expected_types) if u.ctx.expected_types else '(tự xác định)'
         rules = self.rules().block(u.ctx.q.question) if self.use_rules else ''
         return fill(QUESTION_BLOCK, as_of=u.ctx.q.as_of_date.isoformat(), question=u.ctx.q.question, times=times,
-                    entities=json.dumps(ents, ensure_ascii=False, default=str) if ents else '(không có)', expected=exp,
+                    entities=json.dumps(ents, ensure_ascii=False, default=str)[:1500] if ents else '(không có)', expected=exp,
                     rules=('\n' + rules) if rules else '', style=STYLES.get(style, style), steps=self.max_steps)
 
     # -- một lời giải
@@ -214,9 +223,10 @@ class Agent(Strategy):
                         break
                     m = _CTX_N.search(res.error)
                     real = int(m.group(1)) if m else 0
-                    new_cpt = n_chars / real * 0.9 if real else self._cpt * 0.75
-                    log.info('vượt ngữ cảnh (%s token / %d ký tự): ký tự/token %.2f -> %.2f', real or '?', n_chars,
-                             self._cpt, min(self._cpt, new_cpt))
+                    lower_bound = not real or real <= self.ctx_tokens + 1      # vLLM chỉ báo 'at least <giới hạn+1>'
+                    new_cpt = self._cpt * 0.75 if lower_bound else n_chars / real * 0.9
+                    log.info('vượt ngữ cảnh (%s token / %d ký tự, từng phần %s): ký tự/token %.2f -> %.2f', real or '?',
+                             n_chars, [len(m['content']) for m in msgs], self._cpt, min(self._cpt, new_cpt))
                     self._cpt = max(0.8, min(self._cpt, new_cpt))
                 tokens += res.tokens
                 if res.error or not res.text:
