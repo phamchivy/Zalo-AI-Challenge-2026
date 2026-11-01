@@ -31,7 +31,7 @@ def coerce(atype: str, value: Any) -> tuple[Optional[str], Any, list[str]]:
             try:
                 value = float(v2)
             except ValueError:
-                errs.append(f'{t} nhưng giá trị là chuỗi {value!r}')
+                errs.append(f'{t} nhưng giá trị là chuỗi {value!r}'[:200])
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             if not errs:
                 errs.append(f'{t} nhưng giá trị không phải số: {value!r}'[:200])

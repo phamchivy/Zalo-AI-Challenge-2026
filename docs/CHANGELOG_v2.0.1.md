@@ -30,3 +30,8 @@ Test: 49 passed, tầng A không đổi.
 | Lỗi | Trước | Sau |
 |---|---|---|
 | Vẫn vượt 32k token, cắt không giảm (83 550 ký tự cả 3 lần gửi lại) | Phần **câu hỏi** không bao giờ bị cắt, mà danh sách "thực thể đã khớp" có thể chứa hàng nghìn sản phẩm. vLLM chỉ báo "ít nhất 32 769 token" (cận dưới), nên tỉ lệ ký tự/token không giảm | Mỗi danh sách thực thể giữ tối đa 15 phần tử, toàn bộ tối đa 1 500 ký tự. Khi ép cho vừa, cắt thêm phần câu hỏi và 2 message cuối nếu vẫn còn quá dài. Lỗi chỉ cho cận dưới thì giảm tỉ lệ ký tự/token 25% mỗi lần. Log in kích thước từng message |
+
+## v2.0.6
+| Lỗi | Trước | Sau |
+|---|---|---|
+| Một message dài 38–45k ký tự, rulebook bị cắt còn 6k | Thông báo kiểm tra lại chép **nguyên** giá trị đáp án sai kiểu (ví dụ LLM gọi `answer('number', df.to_string())`), khoảng 1,2 ký tự/token. Thứ tự cắt lại đụng rulebook và thông tin shop trước message mới | Mọi message sau câu hỏi tối đa 4000 ký tự. Lỗi kiểu và cảnh báo bị cắt ở 200 / 600 ký tự. Thứ tự cắt mới: message mới → bước cũ → câu hỏi → thông tin shop → rulebook (sau cùng). Tỉ lệ ký tự/token khởi đầu 1,8 |

@@ -65,20 +65,22 @@ _CTX_ERR = re.compile(r'maximum context length|context length|too long|input_tok
 _CTX_N = re.compile(r'(?:contains at least|contains|value=)\s*(\d{4,})')
 
 
-def _fit(msgs: list[dict], max_chars: int) -> int:
-    """Ép tổng độ dài hội thoại <= max_chars, theo thứ tự ít hại nhất:
-    1) rút gọn mạnh các bước cũ (giữ 2 message cuối nguyên vẹn)  2) cắt phần thông tin shop  3) cắt rulebook."""
+def _fit(msgs: list[dict], max_chars: int, msg_cap: int = 4000) -> int:
+    """Ép tổng độ dài hội thoại <= max_chars. Thứ tự (ít hại nhất trước): mọi message sau câu hỏi tối đa msg_cap ký tự ->
+    rút gọn các bước cũ -> 2 message cuối -> phần câu hỏi -> thông tin shop -> rulebook (cuối cùng mới đụng tới)."""
     def total():
         return sum(len(m['content']) for m in msgs)
+    for m in msgs[4:]:
+        if len(m['content']) > msg_cap:
+            m['content'] = m['content'][:msg_cap] + '\n... (đã cắt bớt)'
     _compact(msgs, max_chars)
     for i in range(4, max(4, len(msgs) - 2)):
         if total() <= max_chars:
             break
         if len(msgs[i]['content']) > 250:
             msgs[i]['content'] = msgs[i]['content'][:200] + '\n... (đã rút gọn)'
-    for idx, keep_min in ((1, 4000), (0, 6000), (3, 1500)) + tuple((j, 800) for j in range(len(msgs) - 2, len(msgs))):
-        if idx >= len(msgs):
-            continue
+    plan = tuple((j, 800) for j in range(max(4, len(msgs) - 2), len(msgs))) + ((3, 1500), (1, 4000), (0, 6000))
+    for idx, keep_min in plan:
         over = total() - max_chars
         if over <= 0:
             break
@@ -128,7 +130,7 @@ class Agent(Strategy):
         # giới hạn thật theo token của server (--max-model-len). Ước lượng ký tự/token bắt đầu thận trọng và tự hiệu
         # chỉnh khi server báo vượt ngữ cảnh (đọc số token thật trong lỗi).
         self.ctx_tokens = int(o.get('context_tokens', 32768))
-        self._cpt = float(o.get('chars_per_token', 2.0))
+        self._cpt = float(o.get('chars_per_token', 1.8))
         self._shop_lock: dict[str, asyncio.Lock] = {}
         self._rule_index: Optional[RuleIndex] = None
         self._system: Optional[str] = None
@@ -257,7 +259,7 @@ class Agent(Strategy):
                         warned = True
                         msgs.append({'role': 'user', 'content':
                                      f"Bạn vừa gửi answer({t!r}, {json.dumps(v, ensure_ascii=False, default=str)[:300]}). "
-                                     f"Điểm đáng ngờ: {'; '.join(warns)}. Kiểm tra lại bằng code. Nếu vẫn đúng, gọi lại "
+                                     f"Điểm đáng ngờ: {'; '.join(warns)[:600]}. Kiểm tra lại bằng code. Nếu vẫn đúng, gọi lại "
                                      f"answer với cùng giá trị; nếu không chắc, answer('abstain')."})
                         continue
                     if hard:
