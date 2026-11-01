@@ -176,8 +176,19 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
         ns.pop('__answer__', None)
         signal.alarm(max(1, int(math.ceil(timeout))))
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), warnings.catch_warnings(record=True) as wlist:
+                warnings.simplefilter('always')
+                if _cae is not None:
+                    warnings.simplefilter('error', _cae)
                 exec(compile(code, '<cell>', 'exec'), ns)
+            # cảnh báo (chia cho 0 ra NaN, ngày không rõ định dạng ...) đưa vào kết quả cho agent thấy, không in ra console
+            seen = []
+            for w in wlist:
+                ln = f'{w.category.__name__}: {str(w.message).split(chr(10))[0][:160]}'
+                if ln not in seen:
+                    seen.append(ln)
+            if seen:
+                buf.write('\nCẢNH BÁO:\n' + '\n'.join(seen[:4]) + '\n')
         except _Timeout:
             res = {'status': 'timeout', 'error': f'quá {timeout:.0f}s: tính toán quá nặng, hãy lọc dữ liệu trước'}
         except MemoryError:
