@@ -28,10 +28,14 @@ def load_rows(split: str, run: str, shops: Optional[set] = None) -> list[tuple[s
     qs = {q['id']: q for q in _jsonl(Path(split) / 'questions.jsonl')}
     gold = {a['id']: a for a in _jsonl(Path(split) / 'answers.jsonl')}
     rows = []
+    sub = Path(run) / 'submission.jsonl'
+    in_run = {r['id'] for r in _jsonl(sub)} if sub.exists() else None     # chỉ câu của lần chạy này
     for f in sorted((Path(run) / 'logs').glob('*.json')):
         tr = json.loads(f.read_text(encoding='utf-8'))
         qid = tr.get('qid')
         if qid not in gold or (shops is not None and qs.get(qid, {}).get('business_id') not in shops):
+            continue
+        if in_run is not None and qid not in in_run:
             continue
         cands = []
         for c in tr.get('candidates', []):
@@ -52,9 +56,12 @@ def agreement_table(rows) -> dict:
             continue
         groups = defaultdict(list)
         for c in ag:
-            t, a = normalize_answer(c.answer_type, c.answer)
-            if t:
-                groups[answer_key(t, a)].append((t, a))
+            try:
+                t, a = normalize_answer(c.answer_type, c.answer)
+                if t:
+                    groups[answer_key(t, a)].append((t, a))
+            except Exception:  # noqa: BLE001 - đáp án dạng lạ: bỏ qua
+                continue
         if not groups:
             continue
         k, members = max(groups.items(), key=lambda kv: len(kv[1]))

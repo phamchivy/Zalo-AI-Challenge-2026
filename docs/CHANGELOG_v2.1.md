@@ -35,3 +35,9 @@ bỏ trống. Sau khi sửa lặp, số lời giải hỏng sẽ giảm. Ngưỡ
 | Lỗi | Trước | Sau |
 |---|---|---|
 | `phase2 crash: float() argument must be ... not 'dict'` | Agent trả `table` với dòng dạng `{cột: giá trị}` (kiểu `df.to_dict('records')`), hoặc ô chứa giá trị lồng. Bước chuẩn hoá đáp án gọi `float()` trên dict nên cả câu mất phần LLM, chỉ còn đáp án tầng A | Dòng dạng dict được đổi theo `columns`; ô lạ đổi thành chuỗi. Bộ bỏ phiếu bọc từng đáp án: đáp án không chuẩn hoá được chỉ loại riêng đáp án đó |
+
+## v2.1.2
+| Lỗi | Trước | Sau |
+|---|---|---|
+| `sweep` lỗi `float(None)` | Ô `None` trong đáp án bảng (đã sửa ở v2.1.1). `sweep` chưa bọc lỗi từng đáp án | `sweep` bỏ qua đáp án không chuẩn hoá được |
+| `sweep` đếm cả log của lần chạy cũ (148 log cho 100 câu) | `--fresh` không xoá `logs/` và ghi nối vào `submission.jsonl` cũ | `--fresh` xoá submission + logs cũ của thư mục `--out`. `sweep` chỉ đọc log của các câu có trong `submission.jsonl` |

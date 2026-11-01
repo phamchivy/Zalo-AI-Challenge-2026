@@ -26,6 +26,11 @@ class SubmissionWriter:
         (self.out / 'logs').mkdir(exist_ok=True)
         self.path = self.out / filename
         self.done: dict[str, dict] = {}
+        if not resume:                     # --fresh: xoá kết quả + log cũ, tránh trộn lần chạy trước vào eval / sweep
+            if self.path.exists():
+                self.path.unlink()
+            for f in (self.out / 'logs').glob('*.json'):
+                f.unlink()
         if resume and self.path.exists():
             for line in self.path.read_text(encoding='utf-8').splitlines():
                 try:
