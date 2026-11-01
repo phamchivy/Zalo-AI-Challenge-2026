@@ -14,3 +14,9 @@ Test: 49 passed, tầng A không đổi.
 | Lỗi | Trước | Sau |
 |---|---|---|
 | Code LLM sửa bảng "không ăn" | LLM viết kiểu pandas cũ `df[col].fillna(0, inplace=True)`. Với pandas 3 (Copy-on-Write), lệnh này không sửa gì, chỉ in cảnh báo `ChainedAssignmentError` ra màn hình mà agent không thấy, nên kết quả sai âm thầm | Kernel biến cảnh báo này thành lỗi, kèm hướng dẫn cách viết lại để agent đọc được và sửa ở bước sau. Prompt thêm 1 dòng: không dùng `inplace=True` trên cột |
+
+## v2.0.3
+| Lỗi | Trước | Sau |
+|---|---|---|
+| Vượt ngữ cảnh 32k token (HTTP 400) | Ngân sách tính theo **ký tự** (giả định khoảng 2,5 ký tự/token) và chỉ rút gọn phần lịch sử. Với tiếng Việt và bảng số, mỗi token ít ký tự hơn, nên rulebook + thông tin shop + lịch sử vượt 32k token. Lời giải bị hỏng, server còn bị gửi lại y nguyên 3 lần | Ngân sách tính theo **token** (`context_tokens` 32768 trừ `max_tokens_step`, ước 2,0 ký tự/token). Trước mỗi lượt, hội thoại được ép cho vừa: rút gọn mạnh các bước cũ, rồi cắt bớt thông tin shop, cuối cùng mới cắt rulebook. Khi server vẫn báo vượt, agent đọc số token thật trong lỗi để **tự chỉnh tỉ lệ** ký tự/token, ép lại và gửi lại (tối đa 2 lần). Lỗi vượt ngữ cảnh không còn bị gửi lại y nguyên |
+| Ghi chú shop sai tên bảng (biz_106 bỏ 18/18) | LLM tự viết tên bảng | Schema JSON **chỉ cho phép đúng tên bảng có thật** (enum, vLLM ép khi sinh). Prompt liệt kê tên hợp lệ. Log in các tên bị loại để dò lỗi |

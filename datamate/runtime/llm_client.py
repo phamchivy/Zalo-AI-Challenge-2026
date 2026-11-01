@@ -84,6 +84,8 @@ class LLMClient:
                     r = await c.post(url, json=body, headers={'Authorization': f'Bearer {self.cfg.api_key}'})
                     if r.status_code != 200:
                         last_err = f'HTTP {r.status_code}: {r.text[:300]}'
+                        if r.status_code == 400 and 'context length' in r.text:
+                            break               # vượt ngữ cảnh: gửi lại y nguyên vô ích, để agent rút gọn rồi gửi lại
                         # server không hỗ trợ response_format -> bỏ ràng buộc, parse JSON thủ công
                         if r.status_code == 400 and 'response_format' in body:
                             body.pop('response_format', None)

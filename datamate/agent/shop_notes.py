@@ -103,6 +103,7 @@ def validate(cat, notes: dict) -> dict:
         tn = _find_table(cat, str(t.get('name', '')))
         if not tn:
             out['dropped'] += 1
+            out.setdefault('dropped_names', []).append(str(t.get('name', ''))[:80])
             continue
         df = cat.raw[tn].df
         keys = [c for c in (_find_col(df, k) for k in (t.get('key_columns') or [])) if c]
@@ -156,10 +157,19 @@ async def get_notes(env, cat, summary: str, cards: str) -> str:
     if env.llm is None:
         return ''
     c = cat.canon
+    names = list(cat.raw)
+    schema = json.loads(json.dumps(NOTES_SCHEMA))
+    if 0 < len(names) <= 200:      # ép LLM chỉ được dùng đúng tên bảng có thật (vLLM guided decoding)
+        tp = schema['properties']['tables']['items']['properties']
+        tp['name'] = {'type': 'string', 'enum': names}
+        jp = schema['properties']['joins']['items']['properties']
+        jp['left_table'] = {'type': 'string', 'enum': names}
+        jp['right_table'] = {'type': 'string', 'enum': names}
+    cards = f"Tên bảng hợp lệ (dùng đúng nguyên văn): {json.dumps(names, ensure_ascii=False)}\n\n" + cards
     msgs = [{'role': 'system', 'content': NOTES_SYSTEM},
             {'role': 'user', 'content': fill(NOTES_USER, bid=cat.business_id, dmin=c.date_min, dmax=c.date_max, summary=summary,
                                              readme=(cat.readme.text or '(không có README)')[:9000], cards=cards)}]
-    res = await env.llm.chat(msgs, json_schema=NOTES_SCHEMA, temperature=0.0, max_tokens=1800)
+    res = await env.llm.chat(msgs, json_schema=schema, temperature=0.0, max_tokens=1800)
     data = extract_json(res.text) if res.text else None
     if not isinstance(data, dict):
         log.warning('%s: không tạo được ghi chú shop (%s)', cat.business_id, res.error or 'json lỗi')
@@ -167,6 +177,7 @@ async def get_notes(env, cat, summary: str, cards: str) -> str:
     v = validate(cat, data)
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps(v, ensure_ascii=False, indent=1), encoding='utf-8')
-    log.info('%s: ghi chú shop %d bảng, %d phép nối, bỏ %d khẳng định sai', cat.business_id, len(v['tables']),
-             len(v['joins']), v['dropped'])
+    log.info('%s: ghi chú shop %d bảng, %d phép nối, bỏ %d khẳng định sai%s', cat.business_id, len(v['tables']),
+             len(v['joins']), v['dropped'],
+             f" (tên bảng lạ: {v['dropped_names'][:4]}; bảng thật: {names[:4]})" if v.get('dropped_names') else '')
     return render(v)

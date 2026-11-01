@@ -61,6 +61,32 @@ def _compact(msgs: list[dict], budget: int):
         i += 1
 
 
+_CTX_ERR = re.compile(r'maximum context length|context length|too long|input_tokens', re.I)
+_CTX_N = re.compile(r'(?:contains at least|contains|value=)\s*(\d{4,})')
+
+
+def _fit(msgs: list[dict], max_chars: int) -> int:
+    """Ép tổng độ dài hội thoại <= max_chars, theo thứ tự ít hại nhất:
+    1) rút gọn mạnh các bước cũ (giữ 2 message cuối nguyên vẹn)  2) cắt phần thông tin shop  3) cắt rulebook."""
+    def total():
+        return sum(len(m['content']) for m in msgs)
+    _compact(msgs, max_chars)
+    for i in range(4, max(4, len(msgs) - 2)):
+        if total() <= max_chars:
+            break
+        if len(msgs[i]['content']) > 250:
+            msgs[i]['content'] = msgs[i]['content'][:200] + '\n... (đã rút gọn)'
+    for idx, keep_min in ((1, 4000), (0, 6000)):
+        over = total() - max_chars
+        if over <= 0:
+            break
+        c = msgs[idx]['content']
+        cut = min(over + 200, max(0, len(c) - keep_min))
+        if cut > 0:
+            msgs[idx]['content'] = c[:len(c) - cut] + '\n... (đã cắt bớt cho vừa ngữ cảnh)'
+    return total()
+
+
 def _health_text(h: dict) -> str:
     keep = {k: v for k, v in (h or {}).items() if v and k not in ('recon_orders',)}
     return json.dumps(keep, ensure_ascii=False, default=str) if keep else 'không có'
@@ -97,6 +123,10 @@ class Agent(Strategy):
         self.cards_chars = int(o.get('cards_chars', 12000))
         self.readme_chars = int(o.get('readme_chars', 7000))
         self.history_chars = int(o.get('history_chars', 52000))
+        # giới hạn thật theo token của server (--max-model-len). Ước lượng ký tự/token bắt đầu thận trọng và tự hiệu
+        # chỉnh khi server báo vượt ngữ cảnh (đọc số token thật trong lỗi).
+        self.ctx_tokens = int(o.get('context_tokens', 32768))
+        self._cpt = float(o.get('chars_per_token', 2.0))
         self._shop_lock: dict[str, asyncio.Lock] = {}
         self._rule_index: Optional[RuleIndex] = None
         self._system: Optional[str] = None
@@ -175,9 +205,19 @@ class Agent(Strategy):
                 if not env.llm_allowed():
                     err = 'hết thời gian'
                     break
-                _compact(msgs, self.history_chars)
-                res = await env.llm.chat(msgs, temperature=temp, seed=env.cfg.llm.seed + 1000 * i + step,
-                                         max_tokens=self.max_tokens_step)
+                for _try in range(3):
+                    limit = int((self.ctx_tokens - self.max_tokens_step - 400) * self._cpt)
+                    n_chars = _fit(msgs, min(self.history_chars, limit))
+                    res = await env.llm.chat(msgs, temperature=temp, seed=env.cfg.llm.seed + 1000 * i + step,
+                                             max_tokens=self.max_tokens_step)
+                    if not (res.error and _CTX_ERR.search(res.error)):
+                        break
+                    m = _CTX_N.search(res.error)
+                    real = int(m.group(1)) if m else 0
+                    new_cpt = n_chars / real * 0.9 if real else self._cpt * 0.75
+                    log.info('vượt ngữ cảnh (%s token / %d ký tự): ký tự/token %.2f -> %.2f', real or '?', n_chars,
+                             self._cpt, min(self._cpt, new_cpt))
+                    self._cpt = max(0.8, min(self._cpt, new_cpt))
                 tokens += res.tokens
                 if res.error or not res.text:
                     status, err = 'error', res.error or 'LLM trả rỗng'
