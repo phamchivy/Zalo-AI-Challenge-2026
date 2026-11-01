@@ -19,6 +19,10 @@ CÁCH LÀM
 - Áp dụng đúng RULEBOOK bên dưới (luật mặc định khi câu hỏi không nói khác) và README / ghi chú của shop.
 - Kết quả trung gian bất thường (0, âm, NaN, quá lớn, sai đơn vị, không lọc được dòng nào) -> kiểm tra lại dữ liệu
   (tên hàng viết khác, ngày dạng chuỗi, trạng thái viết khác...) trước khi chốt.
+- Mỗi bước chỉ viết code MỚI (biến của bước trước vẫn còn); không chép lại cả đoạn cũ. Code lỗi: đọc dòng LỖI, sửa
+  đúng chỗ đó; chạy lại y nguyên sẽ ra y nguyên lỗi.
+- Không tự giả định dữ liệu không có: không coi tồn đầu kỳ = 0, không lấy tên hàng / mã đơn thay cho khách hàng, không
+  bịa tiêu chí cho câu hỏi cảm tính ("được quý mến nhất"...). Thiếu thông tin -> answer('unanswerable', None, lý do).
 - Khi chắc chắn, gọi answer(type, value, reason) trong code. Sau khi gọi answer là xong.
 - Dữ liệu KHÔNG có loại thông tin câu hỏi cần, hoặc kỳ hỏi nằm hoàn toàn ngoài khoảng dữ liệu
   -> answer('unanswerable', None, 'lý do'). Không đủ chắc chắn -> answer('abstain'). Sai bị trừ điểm, bỏ trống không bị trừ.
@@ -42,6 +46,9 @@ fold(s) (bỏ dấu + chữ thường, để so khớp tên), to_num(s), parse_d
 answer(type, value, reason)
 Không đọc / ghi file, không gọi mạng. Mỗi khối code chạy tối đa {timeout} giây.
 pandas 3 (Copy-on-Write): không dùng inplace=True trên cột; luôn gán lại, vd df[col] = df[col].fillna(0).
+Cột ngày của canon (date, pay_date, p_date, ...) là datetime64: lọc bằng chuỗi, vd L[(L['date'] >= '2026-07-01') &
+(L['date'] <= '2026-07-31')], hoặc L['date'].dt.month. Không đổi sang .dt.date, không so với datetime.date.
+Tên bảng: đúng như danh sách; tables['Ten_bang'] và tables['Tên bảng'] đều được.
 
 MÔ TẢ canon
 {canon_doc}

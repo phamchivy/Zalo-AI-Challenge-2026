@@ -35,9 +35,16 @@ def coerce(atype: str, value: Any) -> tuple[Optional[str], Any, list[str]]:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             if not errs:
                 errs.append(f'{t} nhưng giá trị không phải số: {value!r}'[:200])
-        elif math.isnan(value) or math.isinf(value):
-            errs.append('giá trị là NaN / vô cực')
+        else:
+            try:
+                bad = math.isnan(value) or math.isinf(value) or abs(value) > 1e15
+            except OverflowError:
+                bad = True
+            if bad:
+                errs.append('giá trị là NaN / vô cực / lớn bất thường')
     elif t == 'date':
+        if hasattr(value, 'isoformat') and not isinstance(value, str):      # Timestamp / date / datetime
+            value = value.isoformat()[:10]
         if not isinstance(value, str) or not _DATE.match(value.strip()):
             errs.append(f"date phải dạng 'YYYY-MM-DD' hoặc 'YYYY-MM', nhận {value!r}"[:200])
     elif t == 'boolean':
@@ -53,6 +60,8 @@ def coerce(atype: str, value: Any) -> tuple[Optional[str], Any, list[str]]:
     elif t == 'table':
         if not (isinstance(value, dict) and 'columns' in value and 'rows' in value):
             errs.append("table phải là {'columns': [...], 'rows': [[...]]}")
+        elif not value['rows']:
+            errs.append('table rỗng (không có dòng nào): bộ lọc đã loại hết dữ liệu')
     elif t == 'string':
         if value is None or (isinstance(value, str) and not value.strip()):
             errs.append('string rỗng')

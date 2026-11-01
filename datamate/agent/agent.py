@@ -32,6 +32,13 @@ from datamate.reasoning.prompts import fill
 from datamate.reasoning.strategies.base import Strategy
 
 log = get_logger('agent')
+# năng lực dữ liệu (canonical.caps) -> mô tả cho agent khi shop KHÔNG có
+_CAP_NAMES = {
+    'customers|customer_code': 'khách hàng (tên / mã khách)', 'stock|lots': 'tồn kho', 'staff': 'nhân viên',
+    'payments|debt': 'thanh toán / công nợ', 'purchases': 'nhập hàng', 'channel': 'kênh bán',
+    'time': 'giờ bán', 'category': 'nhóm hàng', 'cost_line|cost_catalog': 'giá vốn', 'customer_group': 'nhóm khách',
+}
+_CODE_NORM = re.compile(r'#[^\n]*|\s+')
 _THINK = re.compile(r'<think>.*?</think>', re.S)
 _PY = re.compile(r'```(?:python|py)?\s*\n(.*?)```', re.S)
 
@@ -174,8 +181,13 @@ class Agent(Strategy):
                 caps = ', '.join(sorted(k for k in ('lines', 'orders', 'products', 'units', 'customers', 'payments', 'purchases',
                                                      'stock', 'prices', 'lots', 'deliveries')
                                         if getattr(c, k, None) is not None and len(getattr(c, k)) > 0))
+                have = set(getattr(c, 'caps', set()) or set())
+                miss = [v for k, v in _CAP_NAMES.items() if not (have & set(k.split('|')))]
+                caps = (caps or '(trống)') + ('\nBộ chuẩn hoá KHÔNG tìm thấy: ' + '; '.join(miss) +
+                                              '. Câu hỏi cần loại thông tin này: tìm trong bảng gốc trước; nếu thật sự không '
+                                              "có thì answer('unanswerable', None, lý do). Không tự giả định thay thế." if miss else '')
                 self.env.shop_blocks[key] = fill(
-                    SHOP_BLOCK, bid=bid, dmin=c.date_min, dmax=c.date_max, caps=caps or '(trống)',
+                    SHOP_BLOCK, bid=bid, dmin=c.date_min, dmax=c.date_max, caps=caps,
                     health=_health_text(getattr(c, 'health', {})), readme=(cat.readme.text or '(không có README)')[:self.readme_chars],
                     cards=cards, notes=notes)
         return self.env.packs[bid], self.env.shop_blocks[key]
@@ -210,6 +222,7 @@ class Agent(Strategy):
         expected = set(u.ctx.expected_types) if u.ctx.expected_types else None
         fq = u.ctx.fq
         t0, tokens, cells, warned, nudges = time.time(), 0, [], False, 0
+        seen_code, repeats, last_err = set(), 0, ''
         status, err, final = 'empty', 'hết lượt chưa trả lời', None
         try:
             for step in range(1, self.max_steps + 1):
@@ -243,10 +256,26 @@ class Agent(Strategy):
                         break
                     msgs.append({'role': 'user', 'content': 'Hãy viết đúng một khối ```python``` để chạy (hoặc gọi answer(...)).'})
                     continue
+                norm = _CODE_NORM.sub('', code)
+                if norm in seen_code:
+                    repeats += 1
+                    if repeats >= 2:
+                        status, err = 'error', 'lặp lại code cũ'
+                        break
+                    msgs.append({'role': 'user', 'content':
+                                 'Đoạn code này giống hệt một bước trước nên kết quả sẽ y hệt'
+                                 + (f' (lỗi: {last_err[-300:]})' if last_err else '') + '. Không chạy lại. Hãy sửa đúng '
+                                 "nguyên nhân (chỉ viết phần code mới), hoặc answer('abstain') nếu không làm được."})
+                    continue
+                seen_code.add(norm)
                 cells.append(code)
                 ex = await self.kernel().execute(pack, sid, code, meta=meta_q, timeout=self.cell_timeout)
+                last_err = ex.error or ''
                 if ex.answer and ex.status == 'ok':
-                    t, v, hard = coerce(ex.answer.get('type'), ex.answer.get('value'))
+                    try:
+                        t, v, hard = coerce(ex.answer.get('type'), ex.answer.get('value'))
+                    except Exception as e:  # noqa: BLE001 - giá trị lạ không được làm hỏng cả lời giải
+                        t, v, hard = None, None, [f'đáp án không đọc được: {e!r}'[:200]]
                     if t == 'abstain':
                         status, err = 'empty', 'agent tự bỏ trống'
                         break
@@ -265,7 +294,7 @@ class Agent(Strategy):
                     if hard:
                         status, err = 'error', '; '.join(hard)
                         break
-                    final = (t, v, ex.answer.get('reason'), warns)
+                    final = (t, v, str(ex.answer.get('reason') or '')[:300], warns)
                     status, err = 'ok', None
                     break
                 body = (ex.stdout or '').strip() or '(không in gì)'

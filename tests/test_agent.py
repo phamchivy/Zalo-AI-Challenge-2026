@@ -98,3 +98,40 @@ def test_shop_notes_render_validate(mini_split):
                        'conventions': ['a']})
     assert v['tables'][0]['key_columns'] == ['Mã đơn'] and v['joins'] == [] and v['dropped'] == 1
     assert "tables['ban_hang']" in render(v)
+
+
+def test_agent_stops_on_repeated_code(mini_split, tmp_path):
+    """LLM lặp lại đúng đoạn code lỗi: lần 2 không chạy lại mà nhắc, lần 3 dừng lời giải (tiết kiệm lượt)."""
+    def respond(messages, schema):
+        if schema is not None:
+            return '{"tables": [], "conventions": []}'
+        return "Tính.\n```python\nx = canon['lines']\nprint(1/0)\n```"
+    qs = [json.loads(l) for l in (mini_split / 'questions.jsonl').read_text(encoding='utf-8').splitlines()]
+    cfg = _cfg(tmp_path / 'cache', samples=1, steps=6)
+    out = tmp_path / 'out'
+    asyncio.run(Orchestrator(cfg, str(mini_split), str(out), llm=MockLLM(respond)).run(ids=[qs[0]['id']], resume=False))
+    tr = json.loads((out / 'logs' / f"{qs[0]['id']}.json").read_text(encoding='utf-8'))
+    ag = [c for c in tr['candidates'] if c['strategy'] == 'agent']
+    assert ag and ag[0]['error'] == 'lặp lại code cũ' and ag[0]['meta']['steps'] == 1, ag
+
+
+def test_kernel_session_frames_and_dates(tmp_path):
+    import datetime as dt
+    import pickle
+    import pandas as pd
+    from datamate.agent.kernel import KernelPool
+    pk = tmp_path / 'p.pkl'
+    pickle.dump({'tables': {'Danh sách hàng': pd.DataFrame({'a': ['x']})},
+                 'canon': {'lines': pd.DataFrame({'date': [dt.date(2026, 7, 1), dt.date(2026, 8, 2)]})}, 'meta': {}},
+                open(pk, 'wb'))
+
+    async def run():
+        kp = KernelPool(timeout_sec=20, per_shop=1, max_workers=1, mem_gb=4)
+        r1 = await kp.execute(str(pk), 's', "canon['lines']['m'] = canon['lines']['date'].dt.month\n"
+                                             "print(int((canon['lines']['date'] >= '2026-07-15').sum()), tables['Danh_sach_hang'].shape)")
+        r2 = await kp.execute(str(pk), 's', "print(canon['lines']['m'].tolist())")
+        await kp.close()
+        return r1, r2
+    r1, r2 = asyncio.run(run())
+    assert r1.status == 'ok' and r1.stdout.strip() == '1 (1, 1)', (r1.stdout, r1.error)
+    assert r2.stdout.strip() == '[7, 8]', (r2.stdout, r2.error)

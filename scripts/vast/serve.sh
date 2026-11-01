@@ -10,7 +10,8 @@ MODE=${MODE:-tp}
 QUANT=${QUANT:-fp8}
 MAX_LEN=${MAX_LEN:-32768}
 GPU_UTIL=${GPU_UTIL:-0.90}
-MAX_SEQS=${MAX_SEQS:-128}
+MAX_SEQS=${MAX_SEQS:-64}
+KV_DTYPE=${KV_DTYPE:-fp8}           # KV cache FP8: chứa gấp đôi số hội thoại dài cùng lúc (auto = bf16)
 LOG_DIR=${LOG_DIR:-/workspace/vllm_logs}
 mkdir -p "$LOG_DIR"
 QARGS=()
@@ -18,7 +19,7 @@ if [ "$QUANT" = "fp8" ] && ! grep -qi '"quant_method"' "$MODEL/config.json" 2>/d
   QARGS=(--quantization fp8)          # lượng tử hoá FP8 lúc nạp (mô hình bf16); checkpoint FP8 sẵn thì không cần
 fi
 COMMON=(--served-model-name qwen --max-model-len "$MAX_LEN" --gpu-memory-utilization "$GPU_UTIL"
-        --enable-prefix-caching --max-num-seqs "$MAX_SEQS" --seed 42 "${QARGS[@]}")
+        --enable-prefix-caching --max-num-seqs "$MAX_SEQS" --kv-cache-dtype "$KV_DTYPE" --seed 42 "${QARGS[@]}")
 if [ "$MODE" = "tp" ]; then
   nohup python -m vllm.entrypoints.openai.api_server --model "$MODEL" --tensor-parallel-size 2 --port 8000 \
      --host 127.0.0.1 "${COMMON[@]}" > "$LOG_DIR/vllm_tp.log" 2>&1 &

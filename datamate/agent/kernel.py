@@ -39,6 +39,77 @@ class CellResult:
     elapsed: float = 0.0
 
 
+_DATE_COLS = {'date', 'pay_date', 'p_date', 'eff_date', 'expiry', 'recv_date', 'deliv_date', 'datetime', 'pay_datetime'}
+
+
+def _key(s: str) -> str:
+    import re as _re
+    import unicodedata as _u
+    s = _u.normalize('NFD', str(s).replace('đ', 'd').replace('Đ', 'D'))
+    s = ''.join(ch for ch in s if _u.category(ch) != 'Mn').lower()
+    s = _re.sub(r'\.(xlsx|xls|csv|sqlite|db)\b', '', s)
+    return _re.sub(r'[\W_]+', '', s)
+
+
+class _Session:
+    """Bảng của MỘT lời giải: lần đầu lấy bản sao (copy-on-write), các lần sau trả đúng đối tượng đó, nên
+    `canon['lines']['date'] = ...` hay `canon['lines'] = ...` có tác dụng ở các bước sau. Tên bảng viết khác
+    (dấu, hoa thường, '_' thay khoảng trắng, đuôi file) vẫn tìm được; sai hẳn thì báo danh sách tên đúng."""
+
+    def __init__(self, base):
+        self._base, self._local = base, {}
+
+    def _resolve(self, k):
+        if k in self._local or k in self._base:
+            return k
+        kk = _key(k)
+        cands = [n for n in list(self._local) + list(self._base) if _key(n) == kk or _key(str(n).split('::')[-1]) == kk]
+        if len(cands) >= 1:
+            return cands[0]
+        raise KeyError(f'{k!r} không có. Tên bảng hợp lệ: {list(self.keys())}')
+
+    def __getitem__(self, k):
+        k = self._resolve(k)
+        if k not in self._local:
+            self._local[k] = self._base[k]
+        return self._local[k]
+
+    def __setitem__(self, k, v):
+        try:
+            k = self._resolve(k)
+        except KeyError:
+            pass
+        self._local[k] = v
+
+    def __contains__(self, k):
+        try:
+            self._resolve(k)
+            return True
+        except KeyError:
+            return False
+
+    def get(self, k, default=None):
+        return self[k] if k in self else default
+
+    def keys(self):
+        return list(dict.fromkeys(list(self._base.keys()) + list(self._local.keys())))
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def __len__(self):
+        return len(self.keys())
+
+    def items(self):
+        return [(k, self[k]) for k in self.keys()]
+
+    def values(self):
+        return [self[k] for k in self.keys()]
+
+    def __repr__(self):
+        return f'<{len(self)} bảng: {self.keys()}>'
+
+
 # ----------------------------------------------------------------------------- worker (tiến trình con)
 class _Frames(dict):
     """dict DataFrame: mỗi lần lấy trả bản sao nông (copy-on-write) để session không sửa dữ liệu dùng chung."""
@@ -98,6 +169,29 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
     tables = _Frames({k: v for k, v in (pack.get('tables') or {}).items() if v is not None})
     canon = _Frames({k: v for k, v in (pack.get('canon') or {}).items() if v is not None})
     meta = dict(pack.get('meta') or {})
+    # Cột ngày của canon: datetime.date (object) -> datetime64. So sánh được với chuỗi 'YYYY-MM-DD', pd.Timestamp,
+    # datetime; dùng được .dt.month ... (với datetime.date thì pandas báo lỗi so sánh, agent cứ lặp lại mãi).
+    for _n in list(canon.keys()):
+        _df = dict.__getitem__(canon, _n)
+        if not hasattr(_df, 'columns'):
+            continue
+        for _c in _df.columns:
+            if _df[_c].dtype == object and (_c in _DATE_COLS or _c.endswith('_date')):
+                _s = _df[_c].dropna()
+                if len(_s) and isinstance(_s.iloc[0], (date, datetime)):
+                    _df[_c] = pd.to_datetime(_df[_c], errors='coerce')
+
+    class _DateAttr:
+        """`datetime.date(2026, 8, 29)` (kiểu `import datetime`) -> pd.Timestamp; `dt.date()` trên đối tượng vẫn như cũ."""
+        def __get__(self, obj, cls):
+            if obj is None:
+                return pd.Timestamp
+            return lambda: datetime.date(obj)
+
+    class _DT(datetime):
+        date = _DateAttr()
+    _DT.timedelta = timedelta
+    _DT.datetime = _DT
 
     def _sql_factory():
         try:
@@ -139,8 +233,9 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
     sessions: dict[str, dict] = {}
 
     def new_ns():
-        ns = {'pd': pd, 'np': np, 're': re, 'math': math, 'json': json, 'date': date, 'datetime': datetime,
-              'timedelta': timedelta, 'tables': tables, 'canon': canon, 'meta': dict(meta), 'fold': fold, 'to_num': to_num,
+        ns = {'pd': pd, 'np': np, 're': re, 'math': math, 'json': json, 'date': pd.Timestamp, 'datetime': _DT,
+              'timedelta': timedelta, 'tables': _Session(tables), 'canon': _Session(canon), 'meta': dict(meta),
+              'fold': fold, 'to_num': to_num,
               'parse_date': parse_date, 'month_end': month_end, 'round_money': round_money, 'sql': sql,
               '__name__': '__agent__'}
 
@@ -199,6 +294,10 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
             keep = [ln for ln in tb.splitlines() if ('File "<cell>"' in ln or not ln.startswith('  File'))
                     and 'exec(compile(' not in ln and not set(ln.strip()) <= set('~^')]
             err = '\n'.join(keep)
+            if re.search(r"Invalid comparison between dtype=datetime64|not supported between instances of 'datetime\.date' and 'str'|"
+                         r"Cannot compare|can't compare datetime", err):
+                err += ("\nGỢI Ý: cột ngày trong canon là datetime64. So sánh với chuỗi 'YYYY-MM-DD' hoặc pd.Timestamp(...), "
+                        "không dùng datetime.date và không đổi cột sang .dt.date.")
             if 'ChainedAssignmentError' in err:
                 err = err.split('\n')[0] + ('\nChainedAssignmentError: pandas 3 không sửa được bảng qua df[col].method(..., '
                                             'inplace=True). Viết lại: df[col] = df[col].method(...)')
