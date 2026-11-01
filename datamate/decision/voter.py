@@ -19,10 +19,14 @@ def decide(qid: str, cands: list[Candidate], cfg: DecisionConfig) -> Decision:
     for c in cands:
         if c.status != 'ok' or c.answer_type is None:
             continue
-        t, a = normalize_answer(c.answer_type, c.answer)
-        if t is None or t == 'abstain':
+        try:                                    # một đáp án dạng lạ chỉ loại candidate đó, không làm hỏng cả câu
+            t, a = normalize_answer(c.answer_type, c.answer)
+            if t is None or t == 'abstain':
+                continue
+            k = answer_key(t, a)
+        except Exception as e:  # noqa: BLE001
+            c.status, c.error = 'error', f'đáp án không chuẩn hoá được: {e!r}'[:200]
             continue
-        k = answer_key(t, a)
         groups[k].append(c)
         norm[k] = (t, a)
         total += c.weight

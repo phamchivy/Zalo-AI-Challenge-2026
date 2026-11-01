@@ -30,3 +30,8 @@ Test: 51 qua (thêm: dừng khi lặp code; bảng theo lời giải + cột ng�
 ## Chưa đổi (chờ số liệu `sweep`)
 Ngưỡng bỏ phiếu. Ví dụ biz_128 "còn mấy chai nước suối": 2 lời giải cùng ra 48, 2 lời giải hỏng, tổng 0,6 < 0,8 nên vẫn
 bỏ trống. Sau khi sửa lặp, số lời giải hỏng sẽ giảm. Ngưỡng sẽ chỉnh bằng `main sweep` trên log dev, không đoán.
+
+## v2.1.1
+| Lỗi | Trước | Sau |
+|---|---|---|
+| `phase2 crash: float() argument must be ... not 'dict'` | Agent trả `table` với dòng dạng `{cột: giá trị}` (kiểu `df.to_dict('records')`), hoặc ô chứa giá trị lồng. Bước chuẩn hoá đáp án gọi `float()` trên dict nên cả câu mất phần LLM, chỉ còn đáp án tầng A | Dòng dạng dict được đổi theo `columns`; ô lạ đổi thành chuỗi. Bộ bỏ phiếu bọc từng đáp án: đáp án không chuẩn hoá được chỉ loại riêng đáp án đó |

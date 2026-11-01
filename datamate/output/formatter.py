@@ -111,16 +111,35 @@ def normalize_answer(atype: Any, answer: Any) -> tuple[Optional[str], Any]:
             return None, None
         cols = [str(c) for c in answer.get('columns', [])]
         rows = []
-        for r in answer['rows']:
+        for r in answer['rows'] or []:
+            if isinstance(r, dict):                     # dòng dạng {cột: giá trị} (df.to_dict('records'))
+                if not cols:
+                    cols = [str(c) for c in r]
+                r = [r.get(c, r.get(str(c))) for c in cols]
+            elif isinstance(r, tuple):
+                r = list(r)
             rr = []
             for x in (r if isinstance(r, list) else [r]):
                 if isinstance(x, (int, float)) and not isinstance(x, bool):
                     rr.append(_clean_number(float(x), 'number'))
-                else:
+                elif x is None or isinstance(x, (str, bool)):
                     rr.append(x)
+                else:
+                    rr.append(str(x))                   # giá trị lồng / lạ -> chuỗi, không làm hỏng bỏ phiếu
             rows.append(rr)
         return t, {'columns': cols, 'rows': rows}
     return None, None
+
+
+def _key_item(x: Any) -> str:
+    if isinstance(x, str):
+        return norm_answer_str(x)
+    if isinstance(x, (int, float)) and not isinstance(x, bool):
+        try:
+            return str(round(float(x), 2))
+        except (OverflowError, ValueError):
+            return str(x)
+    return norm_answer_str(str(x))
 
 
 def answer_key(t: str, a: Any) -> str:
@@ -132,8 +151,8 @@ def answer_key(t: str, a: Any) -> str:
     if t == 'string':
         return f'{t}:{norm_answer_str(a)}'
     if t == 'list':
-        return f'{t}:' + '|'.join(norm_answer_str(x) if isinstance(x, str) else str(round(float(x), 2)) for x in a)
+        return f'{t}:' + '|'.join(_key_item(x) for x in a)
     if t == 'table':
-        rows = sorted('|'.join(norm_answer_str(x) if isinstance(x, str) else str(round(float(x), 2)) for x in r) for r in a['rows'])
+        rows = sorted('|'.join(_key_item(x) for x in (r if isinstance(r, list) else [r])) for r in a['rows'])
         return f'{t}:' + '||'.join(rows)
     return f'{t}:{a}'
