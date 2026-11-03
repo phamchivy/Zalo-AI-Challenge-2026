@@ -22,13 +22,13 @@ from datamate.understand import entity_link as EL
 from datamate.understand.time_resolver import TimeParse
 
 TIER_B_ONLY = [
-    ('debt', r'\b(con no|cong no|no nhieu|tra no|thu no|ghi no|mua chiu|no them|tuoi no|khach no|dang no|so no|tien no|thu hoi|chua tra( het)?|tra het no|tra bot|con thieu|no cua hang)\b'),
+    ('debt', r'\b(ban chiu|ngay phai tra|han (phai )?tra|han thanh toan|con no|cong no|no nhieu|tra no|thu no|ghi no|mua chiu|no them|tuoi no|khach no|dang no|so no|tien no|thu hoi|chua tra( het)?|tra het no|tra bot|con thieu|no cua hang)\b'),
     ('inventory', r'\b(ton kho|con ton|trong kho|het hang|con (lai )?(bao nhieu|may)|ton cuoi|hang ton|chan .* le|con lai)\b'),
     ('expiry', r'\b(het han|han dung|han su dung|hsd|lo\b.*het han|lo .* gan het)\b'),
-    ('price_effect', r'\b(tang gia|doi gia|len gia|giam gia xuong|ha gia)\b'),
+    ('price_effect', r'\b(tang gia|doi gia|len gia|giam gia xuong|ha gia)\b|\b(tu|sau) (khi|hoi|luc|lan|ngay) .*\b(len|tang len|xuong|giam xuong) \d'),
     ('purchase', r'\b(nhap|phieu nhap|gia nhap|nha cung cap|tien nhap)\b'),
     ('dead_stock', r'\b(bi e|hang e|mat hang e|san pham e|mon e|e hang|ban cham|khong ban duoc|khong ban ra duoc|ban khong duoc|khong ai mua|chua ban duoc|e nhat|ton nhieu)\b'),
-    ('delivery', r'\b(dot giao|dot hang|chuyen giao|cho giao|lan giao|xe giao|giao bao nhieu dot)\b'),
+    ('delivery', r'\b(dot giao|dot hang|chuyen giao|cho giao|lan giao|xe giao|giao bao nhieu dot|\d+ dot|cho di|da (duoc )?(giao|cho))\b'),
     ('net_profit', r'\b(lai rong|chi phi|tru het chi phi|loi nhuan rong)\b'),
     ('special', r'\b(hoa hong|tra gop|bao hanh|imei|thu may cu|may cu|sua xe|voucher|diem tich luy|dung diem|khuyen mai)\b'),
     ('lots', r'\b(lo nao|so lo|theo lo)\b'),
@@ -376,7 +376,8 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
 
     # ---- chọn metric cơ bản: phải có từ khoá số đo rõ ràng, không có thì None (không đoán doanh thu)
     def base_metric() -> Optional[str]:
-        if re.search(r'\b(trung binh|binh quan)\b.*\b(don|bill|hoa don)\b|\bgia tri trung binh\b', qn):
+        if re.search(r'\b(trung binh|binh quan)\b.*\b(don|bill|hoa don|o do|order)\b|\bgia tri trung binh\b'
+                     r'|\b(moi|mot|1) (don|bill|hoa don|o do|order)\b.*\b(trung binh|binh quan)\b', qn):
             return 'aov'
         if GP_WORDS.search(qn) and not re.search(r'\bdoanh thu\b', qn):
             return 'gross_profit'
@@ -412,6 +413,8 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
 
     # ---- 3. so sánh kỳ (%), chênh lệch
     is_cmp = re.search(r'\b(so voi|so sanh|hon hay kem|tang hay giam|tang hoac giam|giam hoac tang|thay doi|tang truong|chenh lech|nhieu hay it hon|cao hay thap hon|giam bao nhieu|tang bao nhieu|ca chieu .* ca sang)\b', qn)
+    if is_cmp and re.search(r'\b(thang|ngay|tuan|quy) nao\b.*\bnhat\b', qn):
+        is_cmp = None                  # "so sánh 3 tháng xem tháng nào nhiều nhất" là hỏi tháng cao nhất
     if is_cmp:
         met = base_metric()
         if met is None:
@@ -765,7 +768,8 @@ def parse_dead_stock(qn, qf, as_of, tp, ix, caps, data_min=None) -> Optional[Par
 
 def parse_delivery(qn, qf, as_of, tp, ix, caps, data_min=None) -> Optional[ParseResult]:
     flows = [r for r in tp.ranges if r.granularity != 'snapshot']
-    if not flows or not re.search(r'\b(bao nhieu|may|so|dem)\b', qn):
+    # chỉ trả lời "bao nhiêu đợt giao"; "mấy đơn giao từ 2 đợt", "đã chở đi bao nhiêu thùng" là câu khác -> tầng B
+    if not flows or not re.search(r'\b(bao nhieu|may|so|dem)\s+(dot|lan giao|chuyen)\b', qn):
         return None
     return ParseResult(intent='delivery_count', confidence=0.85,
                        plan=Plan(metric='delivery_count', op='value', periods=[flows[0]], source='rule'))

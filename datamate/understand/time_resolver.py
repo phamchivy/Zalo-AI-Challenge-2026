@@ -124,6 +124,26 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
                 a = add_months(a, 1)
                 k += 1
             flags.add('series')
+    # dạng viết tắt: '(từ) th12/2025 đến th2/2026', 'T1/2026 tới T3/2026', 'từ 02/2025 tới 04/2025'
+    MY = r'(?:thang |th|t)?\s?(\d{1,2})\s*[/\-]\s*(\d{4}|\d{2})'
+    for m in re.finditer(rf'(?<![\d/])(?:\btu )?{MY}\s*(?:den|toi|qua|sang|cho den)\s*(?:het )?{MY}(?![\d/])', t):
+        tail = t[m.end():m.end() + 40]
+        if re.match(r'\s*(roi|,)\s*(?:qua |sang |den )?(?:thang |th|t)?\s?\d', tail):
+            continue
+        ys = [m[2], m[4]]
+        if not all(len(y) == 4 or 20 <= int(y) <= 39 for y in ys):
+            continue                     # '1/5 đến 7/5' là ngày/tháng, không phải tháng/năm
+        a = _safe_date(_y(m[2]), int(m[1]), 1) if 1 <= int(m[1]) <= 12 else None
+        b = _safe_date(_y(m[4]), int(m[3]), 1) if 1 <= int(m[3]) <= 12 else None
+        if not a or not b or a > b or (b.year - a.year) * 12 + b.month - a.month > 35:
+            continue
+        if take(m):
+            k = 0
+            while a <= b:
+                add(m.start() + k, _month(a.year, a.month, m[0], label=f'series_{k}'))
+                a = add_months(a, 1)
+                k += 1
+            flags.add('series')
     # ---- quý
     for m in re.finditer(r'\bquy (\d)\s*(?:/|-|nam |\.)\s*(\d{4}|\d{2})\b', t):
         if take(m):
@@ -144,6 +164,19 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
             else:
                 y, q = (as_of.year, q - 1) if q > 1 else (as_of.year - 1, 4)
                 add(m.start(), _quarter(y, q, m[0]))
+    # liệt kê nhiều tháng chung một năm: 'các tháng 10, 11, 12 năm 2025', 'tháng 3, tháng 4, tháng 5 năm 2025'
+    for m in re.finditer(r'\bthang (\d{1,2})((?:\s*(?:,|va|và|;)\s*(?:thang )?\d{1,2})+)\s*(?:nam |/)(\d{4})\b', t):
+        ms = [int(m[1])] + [int(x) for x in re.findall(r'\d{1,2}', m[2])]
+        if not all(1 <= x <= 12 for x in ms):
+            continue
+        if take(m):
+            yy = int(m[3])
+            for k, mm in enumerate(ms):
+                add(m.start() + k, _month(yy, mm, m[0]))
+    # 'tháng M năm trước / năm ngoái / năm rồi' (tính theo hôm nay)
+    for m in re.finditer(r'\bthang (\d{1,2}) (?:cua )?nam (?:truoc|ngoai|roi)\b', t):
+        if 1 <= int(m[1]) <= 12 and take(m):
+            add(m.start(), _month(as_of.year - 1, int(m[1]), m[0]))
     # ---- tháng M/Y (nhiều dạng); dạng liệt kê sau chữ 'thang'
     for m in re.finditer(r'\b(?:thang|t)\s?(\d{1,2})\s*(?:/|-|nam |\.)\s*(\d{4}|\d{2})\b', t):
         if take(m):
@@ -170,6 +203,12 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
             mm, yy = int(m[1]), int(m[2])
             if 1 <= mm <= 12:
                 add(m.start(), _month(yy, mm, m[0]))
+    for m in re.finditer(r'(?<![\d/])(?<!\d[.,])(\d{1,2})[/\-](\d{2})(?![\d/])(?![.,]\d)', t):
+        mm, yy = int(m[1]), int(m[2])
+        if not (1 <= mm <= 12 and 20 <= yy <= 39) or re.search(r'\bngay\s*$', t[:m.start()]):
+            continue
+        if take(m):
+            add(m.start(), _month(2000 + yy, mm, m[0]))
     # ---- tháng M không năm / tháng này / tháng trước
     for m in re.finditer(r'\bthang (\d{1,2})\b(?!\s*(?:/|-|nam \d|\.\d))', t):
         if take(m):
@@ -177,16 +216,26 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
             if 1 <= mm <= 12:
                 y = as_of.year if date(as_of.year, mm, 1) <= as_of else as_of.year - 1
                 add(m.start(), _month(y, mm, m[0]))
-    for m in re.finditer(r'\b(?:tu )?(?:dau )?thang nay\b(?:\s*(?:den|toi) (?:het )?(?:hom nay|nay))?', t):
+    for m in re.finditer(r'\btu (?:mung 1|ngay 1|dau thang)(?: thang nay| nay)?\s*(?:den|toi|cho den) (?:het )?(?:ngay )?(?:hom nay|nay|bay gio|gio|chu)\b', t):
         if take(m):
             add(m.start(), TimeRange(start=as_of.replace(day=1), end=as_of, expr=m[0], granularity='month'))
-    for m in re.finditer(r'\bcung ky thang truoc\b|\bcung (?:so ngay|ky) (?:cua )?thang truoc\b', t):
+    for m in re.finditer(r'\b(?:tu )?(?:dau )?thang nay\b(?:\s*(?:den|toi) (?:het )?(?:hom nay|nay|gio|bay gio))?', t):
+        if take(m):
+            add(m.start(), TimeRange(start=as_of.replace(day=1), end=as_of, expr=m[0], granularity='month'))
+    for m in re.finditer(r'\bcung ky thang (?:truoc|roi|vua roi)\b|\bcung (?:so ngay|ky)(?: dau)? (?:cua )?thang (?:truoc|roi|vua roi|lien truoc)\b', t):
         if take(m):
             flags.add('mtd_compare')
     for m in re.finditer(r'\bthang (?:lien truoc|truoc nua)\b', t):
         if take(m):
             flags.add('prev_period')
-    for m in re.finditer(r'\bthang truoc\b', t):
+    mtd_now = any(tr.granularity == 'month' and tr.end == as_of and tr.start == as_of.replace(day=1) for _, tr in found)
+    for m in re.finditer(r'\bthang (?:truoc|roi|vua roi)\b', t):
+        if re.search(r'\bthang sau\b.*\bthang truoc\b', t):
+            break                      # "tháng sau cao hơn tháng trước": quan hệ, không phải kỳ hỏi
+        if mtd_now and re.search(r'\b(so voi|so|hon|kem|tang|giam|chenh)\b', t):
+            take(m)
+            flags.add('mtd_compare')   # tháng này (đến hôm nay) so với tháng trước: lấy cùng số ngày (rulebook §2)
+            continue
         if take(m):
             p = add_months(as_of.replace(day=1), -1)
             add(m.start(), _month(p.year, p.month, m[0]))
@@ -226,6 +275,9 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
             if w:
                 add(m.start(), TimeRange(start=w[0], end=w[1], expr=m[0], granularity='tet'))
     # ---- năm
+    for m in re.finditer(r'\b(?:tu )?dau nam(?: nay)? (?:toi|den|cho den) (?:het )?(?:nay|hom nay|bay gio|bay chu|chu|gio)\b', t):
+        if take(m):
+            add(m.start(), TimeRange(start=date(as_of.year, 1, 1), end=as_of, expr=m[0], granularity='year'))
     for m in re.finditer(r'\btu dau nam(?: \d{4})?(?: (?:toi|den) (?:nay|hom nay|het hom nay))?\b', t):
         if take(m):
             add(m.start(), TimeRange(start=date(as_of.year, 1, 1), end=as_of, expr=m[0], granularity='year'))
@@ -254,6 +306,11 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
         if take(m):
             add(m.start(), _day(as_of - timedelta(days=2), m[0]))
 
+    endpoint = [m.span() for m in re.finditer(
+        r'\b(?:tinh (?:luon|ca|them)|ke ca|bao gom ca|gom ca|tinh)\s+(?:ngay )?hom nay\b|\b(?:den|toi|cho den) (?:het )?(?:ngay )?hom nay\b', t)]
+    if endpoint and any(tr.granularity != 'day' for _, tr in found):
+        found = [(p, tr) for p, tr in found
+                 if not (tr.granularity == 'day' and any(a <= p < b for a, b in endpoint))]
     found.sort(key=lambda x: x[0])
     tp = TimeParse(ranges=[tr for _, tr in found], flags=flags)
     if 'before_tet' in flags:

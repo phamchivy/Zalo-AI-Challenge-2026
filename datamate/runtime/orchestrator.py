@@ -148,6 +148,26 @@ class Orchestrator:
                 else:
                     finish(q, intent, times, cands, d, t0)
 
+        def llm_policy(d0: Decision, d: Decision) -> Decision:
+            """v2.2: LLM không được thay / xoá đáp án tầng A; khi tầng A bỏ trống chỉ nhận kiểu đáp án cho phép."""
+            dc = self.cfg.decision
+            if dc.llm_keep_tier_a and d0.type != AnswerType.ABSTAIN:
+                return d0
+            if d.type == AnswerType.ABSTAIN:
+                return d
+            if dc.llm_answer_types is not None and d.type.value not in dc.llm_answer_types:
+                stats['llm_blocked_type'] += 1
+                return Decision(qid=d.qid, type=AnswerType.ABSTAIN, policy=f'llm_type_blocked({d.type.value})')
+            if dc.llm_reject_zero and d.type in (AnswerType.NUMBER, AnswerType.PERCENT):
+                try:
+                    v = float(d.answer)
+                except (TypeError, ValueError):
+                    v = None
+                if v is not None and (v == 0 or (d.type == AnswerType.PERCENT and abs(v) >= 100)):
+                    stats['llm_blocked_zero'] += 1
+                    return Decision(qid=d.qid, type=AnswerType.ABSTAIN, policy='llm_zero_blocked')
+            return d
+
         # ---- pha 2: strategy LLM cho câu chưa chắc, theo từng shop (tái dùng cache tiền tố của vLLM)
         async def phase2(item):
             q, u, cands, intent, times, t0, d0 = item
@@ -164,7 +184,7 @@ class Orchestrator:
                                 new += r
                         contract(u, new)
                         cands = cands + new
-                        d = decide(q.id, cands, self.cfg.decision)
+                        d = llm_policy(d0, decide(q.id, cands, self.cfg.decision))
                     else:
                         stats['llm_out_of_time'] += 1
                 except Exception as e:  # noqa: BLE001

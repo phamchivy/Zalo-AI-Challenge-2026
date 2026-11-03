@@ -45,6 +45,10 @@ class DecisionConfig(BaseModel):
     type_contract: bool = True                  # loại candidate lệch kiểu so với dạng câu hỏi
     # v2 — chỉ gọi strategy LLM khi tầng A chưa đủ chắc: quyết định pha 1 đã trả lời với support >= ngưỡng thì bỏ qua LLM
     llm_skip_support: float = 0.9
+    # v2.2 — vai trò của LLM sau khi đo trên public (agent tự tính số: đúng ~40% trên shop lạ, lỗ điểm):
+    llm_keep_tier_a: bool = True                # tầng A đã trả lời (kể cả độ tin cậy < llm_skip_support) thì giữ nguyên
+    llm_answer_types: Optional[list[str]] = None  # kiểu đáp án LLM được tự đưa ra khi tầng A bỏ trống; None = mọi kiểu
+    llm_reject_zero: bool = True                # đáp án 0 / 0% / ±100% chỉ từ LLM -> bỏ trống
 
 
 class Config(BaseModel):

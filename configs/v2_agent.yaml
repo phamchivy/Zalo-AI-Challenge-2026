@@ -48,3 +48,7 @@ decision:
   unexplained_factor: [1.0, 0.5, 0.0]
   type_contract: true
   llm_skip_support: 0.9         # tầng A đã trả lời với độ tin cậy >= 0.9 thì không gọi LLM
+  # v2.2 (đo trên public): giữ đáp án tầng A; LLM chỉ được kết luận 'không trả lời được' khi tầng A bỏ trống
+  llm_keep_tier_a: true
+  llm_answer_types: [unanswerable]
+  llm_reject_zero: true
