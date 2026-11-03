@@ -25,7 +25,7 @@ TIER_B_ONLY = [
     ('debt', r'\b(ban chiu|ngay phai tra|han (phai )?tra|han thanh toan|con no|cong no|no nhieu|tra no|thu no|ghi no|mua chiu|no them|tuoi no|khach no|dang no|so no|tien no|thu hoi|chua tra( het)?|tra het no|tra bot|con thieu|no cua hang)\b'),
     ('inventory', r'\b(ton kho|con ton|trong kho|het hang|con (lai )?(bao nhieu|may)|ton cuoi|hang ton|chan .* le|con lai)\b'),
     ('expiry', r'\b(het han|han dung|han su dung|hsd|lo\b.*het han|lo .* gan het)\b'),
-    ('price_effect', r'\b(tang gia|doi gia|len gia|giam gia xuong|ha gia)\b|\b(tu|sau) (khi|hoi|luc|lan|ngay) .*\b(len|tang len|xuong|giam xuong) \d'),
+    ('price_effect', r'\b(tang gia|doi gia|len gia|giam gia xuong|ha gia)\b|\blen (gia )?\d[\d.,]*\s*(k|d|dong|nghin|ngan)?\b.*\b\d+ ngay\b|\b(tu|sau) (khi|hoi|luc|lan|ngay) .*\b(len|tang len|xuong|giam xuong) \d'),
     ('purchase', r'\b(nhap|phieu nhap|gia nhap|nha cung cap|tien nhap)\b'),
     ('dead_stock', r'\b(bi e|hang e|mat hang e|san pham e|mon e|e hang|ban cham|khong ban duoc|khong ban ra duoc|ban khong duoc|khong ai mua|chua ban duoc|e nhat|ton nhieu)\b'),
     ('delivery', r'\b(dot giao|dot hang|chuyen giao|cho giao|lan giao|xe giao|giao bao nhieu dot|\d+ dot|cho di|da (duoc )?(giao|cho))\b'),
@@ -364,6 +364,8 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         if staff and v_ == staff:
             linked.append(k_)
     unk_toks = unexplained(qn, linked, tp, raw=raw, ix=ix)
+    # v2.3: biểu thức thời gian có trong câu nhưng bộ đọc thời gian không dùng tới -> kỳ có thể sai, không tự tin
+    unk_toks = list(unk_toks) + [f'time:{x}' for x in getattr(tp, 'unused', [])]
     if unk_toks:
         ents['unexplained'] = unk_toks
     feats = {'unexplained': len(unk_toks), 'has_period': bool(P)}
@@ -464,7 +466,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
     if re.search(r'\b(bao nhieu|may|so|dem|nhieu|bn)\s+ngay\b', qn) and re.search(r'\b(dat|tu|tren|hon|it nhat|qua)\b', qn):
         thr = _money_threshold(qn)
         met = base_metric()
-        if thr and met == 'revenue':
+        if thr and (met == 'revenue' or (met is None and re.search(r'\bban (duoc|ra)\b', qn))):     # 'bán được từ 15 triệu' = doanh thu
             return res('day_count_thr', mk('revenue', 'count_ge', group_by='day', threshold=thr[0], threshold_metric='revenue',
                                            note='gt' if thr[1] else ''))
         return none('day_count_thr', 'day threshold not understood')
@@ -478,7 +480,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         if thr:
             op = 'pct_ge' if asks_pct(qn) else 'count_ge'
             return res('customer_thr', mk('orders', op, group_by='customer', threshold=thr[0], threshold_metric='orders', note='gt' if thr[1] else ''))
-    if re.search(r'\b(mat hang|san pham|mon)\b', qn) and re.search(r'\b(xuat hien|co mat|duoc mua|nam trong|co trong)\b', qn):
+    if re.search(r'\b(mat hang|san pham|mon)\b', qn) and re.search(r'\b(xuat hien|co mat|duoc mua|duoc goi|duoc dat|nam trong|co trong|goi trong)\b', qn):
         thr = _int_threshold(qn, r'don')
         if thr:
             return res('product_count', mk('orders', 'count_ge', group_by='product', threshold=thr[0], threshold_metric='orders', note='gt' if thr[1] else ''))
@@ -517,7 +519,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         return res('rank_def', plan)
 
     # ---- 8. ngày / tháng cao nhất (số đo nêu rõ trong câu)
-    SUP = r'\b(cao nhat|nhieu nhat|dat nhat|lon nhat|dong nhat|nhieu tien nhat|thap nhat|it nhat|it tien nhat|ky luc)\b'
+    SUP = r'\b(cao nhat|nhieu nhat|dat nhat|lon nhat|dong nhat|nhieu tien nhat|thap nhat|it nhat|it tien nhat|ky luc)\b|\bnhieu \w+( \w+)? nhat\b'
     if re.search(r'\b(ngay nao|hom nao)\b', qn) and re.search(SUP, qn):
         met = base_metric()
         if met is None or met == 'customers':
@@ -534,7 +536,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
     # ---- 9. xếp hạng thông dụng (bán chạy, khách mua nhiều tiền / nhiều lần, ...)
     k = _k(qn)
     rank_words = r'\b(ban chay|chay nhat|best seller|top|chi nhieu|chi tieu nhieu|loi nhat|lai nhat|ban dat nhat|hot nhat)\b|\b(nhieu|cao|lon|it|thap)( \w+){0,2} nhat\b'
-    if re.search(rank_words, qn):
+    if re.search(rank_words, re.sub(r'\bit nhat (mot|\d+)\b', ' ', qn)):
         many = k is not None and k > 1
         if re.search(r'\b(khach|ai mua|nguoi mua)\b', qn):
             if 'customers' not in caps:
@@ -566,8 +568,9 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
                 met = 'gross_profit'
             elif re.search(r'\b(doanh thu|nhieu tien|tien)\b', qn) and not re.search(r'ban chay', qn):
                 met = 'revenue'
-            elif re.search(r'\b(ban chay|chay nhat|hot nhat|best seller|ban nhieu nhat|ban duoc nhieu nhat|ban ra nhieu nhat|so luong)\b', qn):
-                met = 'qty'
+            elif re.search(r'\b(ban chay|chay nhat|hot nhat|best seller|ban nhieu nhat|ban duoc nhieu nhat|ban ra nhieu nhat|so luong)\b'
+                           r'|\bban (duoc |ra )?nhieu (?!tien|doanh)\w+ nhat\b', qn):
+                met = 'qty'                    # 'bán được nhiều ly nhất' = theo số lượng (rulebook §3 bán chạy)
             else:
                 return none('top_product', 'ranking criterion not stated')
             filters.pop('product', None)

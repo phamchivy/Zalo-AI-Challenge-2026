@@ -92,6 +92,9 @@ def qnorm(text: str) -> str:
         out.append(TEEN.get(tok, tok))
         i += 1
     out = [x for x in out if x]
+    for i in range(len(out) - 2, 0, -1):             # 'ô đờ' = order = đơn (trước khi bỏ từ đệm cuối 'do')
+        if out[i] == 'o' and out[i + 1] == 'do' and out[i - 1] in ('nhieu', 'may', 'moi', 'mot', '1', 'so', 'cac', 'tong'):
+            out[i:i + 2] = ['don']
     for i in range(1, len(out)):
         rule = _DIALECT_AFTER.get(out[i])
         if rule and out[i - 1].split()[-1] in rule[0]:
@@ -120,4 +123,23 @@ def qnorm(text: str) -> str:
     t = re.sub(r'\bnam (ngoai|roi|vua roi)\b', 'nam truoc', t)
     t = re.sub(r'\bnhieu tien nhat\b', 'nhieu tien nhat', t)
     t = re.sub(r'\bphan tram\b', '%', t)
+    # v2.3 — cụm nhiều từ (TEEN chỉ khớp 1-2 từ), từ dính liền, gõ nhầm / phương ngữ hay gặp trong tiếng chat
+    t = re.sub(r'\blen hay xuong\b|\bxuong hay len\b', 'tang hay giam', t)
+    t = re.sub(r'\blen xuong\b', 'tang hoac giam', t)
+    t = re.sub(r'\bhon kem\b', 'hon hay kem', t)
+    t = re.sub(r'\bso (doi|dzoi|zoi|voi lai)\b', 'so voi', t)
+    t = re.sub(r'\bthang ngay truoc do\b', 'thang lien truoc', t)
+    t = re.sub(r'\b(ban|mua|thu|chi|cao|thap|nhieu|it)(nhieu|nhat|don|tien|ve|duoc)\b', r'\1 \2', t)
+    t = re.sub(r'\b(cao|thap|nhieu|it) nhta\b', r'\1 nhat', t)
+    t = re.sub(r'\b(trung|binh) bih\b', r'\1 binh', t)
+    t = re.sub(r'\bbin quan\b', 'binh quan', t)
+    t = re.sub(r'\b(ban|ra) roa\b|\broa\b(?= (tong|duoc|bao|may))', lambda m: (m[1] + ' ra') if m[1] else 'ra', t)
+    # 'gọi chong', 'chong quý 1' (= trong); không đụng tên hàng 'ốp chống sốc', 'kem chống nắng'
+    t = re.sub(r'\bchong\b(?= (quy|thang|tuan|nam|ngay|it nhat|\d|t\d|th\d))|(?<=\bgoi )chong\b', 'trong', t)
+    t = re.sub(r'\bgop mat\b', 'co mat', t)
+    t = re.sub(r'\bchot (duoc|dc|them)\b', r'ban \1', t)               # 'chốt được mấy đơn' = bán được
+    t = re.sub(r'\b(bao nhieu|nhieu|bang nhieu|bang) tieng\b', r'\1 tien', t)   # 'nhiêu tiếng' (gõ nhầm 'tiền')
+    t = re.sub(r'\bmua nhieu tieng\b', 'mua nhieu tien', t)
+    # 'được nhiêu' (không 'bao') = được bao nhiêu, trừ khi là so sánh / cao nhất ('được nhiều tiền nhất')
+    t = re.sub(r'\b(duoc|ra|het|mat|la|tong|tra|ve) nhieu\b(?!(?: \w+){0,3} (nhat|hon)\b)', r'\1 bao nhieu', t)
     return ' '.join(t.split())

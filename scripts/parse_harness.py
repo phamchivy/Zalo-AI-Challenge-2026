@@ -35,7 +35,7 @@ for f in sorted(glob.glob(logs + '/*.json')):
         pr = parse_question(qn, qf, asof, tp, EntityIndex(), caps, dmin, dmax, cal, rules=rules, raw=q)
         plan = pr.plan
         res[t['qid']] = {'intent': pr.intent, 'metric': getattr(plan, 'metric', None), 'op': getattr(plan, 'op', None),
-                         'periods': [f'{p.start}..{p.end}' for p in (plan.periods if plan else tp.ranges)],
+                         'periods': [f'{p.start}..{p.end}' for p in (plan.periods if plan else tp.ranges)], 'unexplained': (pr.features or {}).get('unexplained'), 'unused': getattr(tp, 'unused', []),
                          'reason': pr.reason[:80], 'q': q, 'biz': t['business_id']}
     except Exception as e:
         res[t['qid']] = {'intent': 'ERR', 'err': repr(e)[:120], 'q': q, 'biz': t['business_id']}

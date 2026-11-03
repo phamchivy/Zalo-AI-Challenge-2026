@@ -23,6 +23,7 @@ class TimeParse:
     ranges: list[TimeRange] = field(default_factory=list)
     flags: set[str] = field(default_factory=set)       # prev_period | yoy | mtd_compare | before_tet | series | snapshot
     n_before: Optional[int] = None                      # "N ngày trước Tết"
+    unused: list[str] = field(default_factory=list)     # v2.3: biểu thức thời gian có trong câu nhưng không đọc được
 
 
 def _y(s: str) -> int:
@@ -173,6 +174,20 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
             yy = int(m[3])
             for k, mm in enumerate(ms):
                 add(m.start() + k, _month(yy, mm, m[0]))
+    # 'th4, th5, th6 (mỗi tháng)', 'th7, th8, th9/2025', 't3, t4 va t5 nam 2026'
+    for m in re.finditer(r'\b(?:thang |th|t)(\d{1,2})((?:\s*(?:,|va|và|;)\s*(?:thang |th|t)\d{1,2}){1,})\b(?:\s*(?:/|-|nam )\s*(\d{4}|\d{2})\b)?', t):
+        ms = [int(m[1])] + [int(x) for x in re.findall(r'(\d{1,2})', m[2])]
+        if not all(1 <= x <= 12 for x in ms):
+            continue
+        if not m[3] and not re.search(r'\b(moi thang|tung thang|lan luot|cac thang|thang nao|tang lien tuc|lien tuc)\b', t):
+            continue                     # 'th4, th5' không năm, không ngữ cảnh tháng: có thể là thứ 4, thứ 5
+        if take(m):
+            for k, mm in enumerate(ms):
+                if m[3]:
+                    yy = _y(m[3])
+                else:
+                    yy = as_of.year if date(as_of.year, mm, 1) <= as_of else as_of.year - 1
+                add(m.start() + k, _month(yy, mm, m[0]))
     # 'tháng M năm trước / năm ngoái / năm rồi' (tính theo hôm nay)
     for m in re.finditer(r'\bthang (\d{1,2}) (?:cua )?nam (?:truoc|ngoai|roi)\b', t):
         if 1 <= int(m[1]) <= 12 and take(m):
@@ -209,6 +224,13 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
             continue
         if take(m):
             add(m.start(), _month(2000 + yy, mm, m[0]))
+    for m in re.finditer(r'\b(?:th|t)(\d{1,2})\b(?!\s*(?:/|-|nam \d|\.\d))', t):
+        mm = int(m[1])
+        if not 1 <= mm <= 12 or (2 <= mm <= 7 and re.search(r'\btuan\b', t)):
+            continue                       # 't4 tuần trước' = thứ 4
+        if take(m):
+            y = as_of.year if date(as_of.year, mm, 1) <= as_of else as_of.year - 1
+            add(m.start(), _month(y, mm, m[0]))
     # ---- tháng M không năm / tháng này / tháng trước
     for m in re.finditer(r'\bthang (\d{1,2})\b(?!\s*(?:/|-|nam \d|\.\d))', t):
         if take(m):
@@ -232,6 +254,12 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
     for m in re.finditer(r'\bthang (?:truoc|roi|vua roi)\b', t):
         if re.search(r'\bthang sau\b.*\bthang truoc\b', t):
             break                      # "tháng sau cao hơn tháng trước": quan hệ, không phải kỳ hỏi
+        explicit_month = any(tr.granularity == 'month' and not (tr.end == as_of and tr.start == as_of.replace(day=1))
+                             for _, tr in found)
+        if explicit_month and re.search(r'\b(so voi|so|hon|kem|voi)\s+(?:\w+\s+){0,1}$', t[:m.start()]):
+            take(m)
+            flags.add('prev_period')   # "tháng 4/2026 so (với) tháng trước": tháng liền trước tháng 4/2026
+            continue
         if mtd_now and re.search(r'\b(so voi|so|hon|kem|tang|giam|chenh)\b', t):
             take(m)
             flags.add('mtd_compare')   # tháng này (đến hôm nay) so với tháng trước: lấy cùng số ngày (rulebook §2)
@@ -311,8 +339,16 @@ def resolve_time(t: str, as_of: date, cal: Optional[LunarCalendar] = None) -> Ti
     if endpoint and any(tr.granularity != 'day' for _, tr in found):
         found = [(p, tr) for p, tr in found
                  if not (tr.granularity == 'day' and any(a <= p < b for a, b in endpoint))]
+    unused = []
+    for m in re.finditer(r'(?<![\d.,/])\d{1,2}\s*[/\-]\s*\d{2,4}(?![\d/]|[.,]\d)|\b(?:thang|quy|tuan) \d{1,2}\b|\bnam \d{4}\b|\b(?:th|t)\d{1,2}\b', t):
+        if any(used[m.start():m.end()]):
+            continue
+        mm = re.fullmatch(r'(\d{1,2})\s*[/\-]\s*(\d{2,4})', m[0])
+        if mm and not (len(mm[2]) == 4 or 20 <= int(mm[2]) <= 39):
+            continue                       # '0-7, 8-15' (khoảng số), '1/5' (ngày/tháng): không phải tháng/năm
+        unused.append(m[0])
     found.sort(key=lambda x: x[0])
-    tp = TimeParse(ranges=[tr for _, tr in found], flags=flags)
+    tp = TimeParse(ranges=[tr for _, tr in found], flags=flags, unused=unused)
     if 'before_tet' in flags:
         m = re.search(r'\b(\d+) ngay (?:ngay )?truoc tet\b', t)
         tp.n_before = int(m[1]) if m else None
