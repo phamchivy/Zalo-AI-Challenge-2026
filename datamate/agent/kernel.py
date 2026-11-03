@@ -249,7 +249,7 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
     while True:
         try:
             msg = conn.recv()
-        except EOFError:
+        except (EOFError, OSError):          # v2.3.2: tiến trình chính đã đóng kết nối (timeout -> khởi động lại): thoát êm
             break
         op = msg.get('op')
         if op == 'close':
@@ -315,8 +315,13 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
         res.update(stdout=out, answer=_jsonable(ans), elapsed=time.time() - t0)
         try:
             conn.send(res)
+        except (BrokenPipeError, ConnectionResetError, EOFError):
+            break                            # v2.3.2: phía nhận đã đóng -> thoát êm, không in traceback
         except Exception:  # noqa: BLE001 - kết quả không gửi được (vd quá lớn) -> báo lỗi
-            conn.send({'status': 'error', 'error': 'kết quả không gửi được', 'stdout': out[:2000], 'answer': None})
+            try:
+                conn.send({'status': 'error', 'error': 'kết quả không gửi được', 'stdout': out[:2000], 'answer': None})
+            except OSError:
+                break
     try:
         conn.close()
     except Exception:  # noqa: BLE001

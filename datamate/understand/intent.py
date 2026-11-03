@@ -35,13 +35,13 @@ TIER_B_ONLY = [
 ]
 
 MONEY = r'(\d[\d.,]*)\s*((?:k|nghin|ngan|tr|trieu|ty|cu|d|dong|vnd)(?:\d{1,3}k?)?)?\b'   # '3tr7', '1tr500'
-REV_WORDS = r'\b(doanh thu|doanh so|tien hang|tien ban|thu ve|thu duoc|ban duoc bao nhieu tien|tien)\b'
+REV_WORDS = r'\b(doanh thu|doanh so|tien hang|tien ban|thu ve|thu duoc|ban duoc bao nhieu tien|tien|(may|bao nhieu) (dong|trieu))\b'
 # hỏi phần trăm: '%' KHÔNG đứng sau chữ số ('0,1%' trong tên hàng không phải câu hỏi %)
 _PCT = re.compile(r'(?<![\d.,])%|\bphan tram\b|\b(ti|ty) le\b|\b(ti|ty) trong\b')
 
 
 # lãi / lời: không nhận "lai" đứng một mình ("cộng lại", "bán lại", "trả lại")
-GP_WORDS = re.compile(r'\b(lai gop|loi gop|loi nhuan|tien lai|tien loi|(lai|loi) (bao nhieu|bn|duoc|may|ra sao|the nao))\b')
+GP_WORDS = re.compile(r'\b(lai gop|loi gop|loi nhuan|tien lai|tien loi|(?<!cong )(?<!gop )(?<!tinh )(?<!cong tat ca )(lai|loi) (bao nhieu|bn|duoc|may|ra sao|the nao))\b')
 PAY_CUE = re.compile(r'\b(tra|thanh toan|tt) (bang|qua)\b|\b(hinh thuc|phuong thuc) (thanh toan|tt)\b')
 UNSUPPORTED_ATTR = re.compile(r'\bkhach (hang )?(nam|nu)\b(?!\s*(\d|nay|truoc|ngoai|qua|roi))|\b(gioi tinh|do tuoi)\b')
 
@@ -223,11 +223,27 @@ def yoy(tr: TimeRange) -> TimeRange:
 
 
 # ----------------------------------------------------------------------------- parser
+_NUMW = {'hai': 2, 'ba': 3, 'bon': 4, 'nam': 5, 'sau': 6, 'bay': 7, 'tam': 8, 'chin': 9, 'muoi': 10}
+_KNOUN = r'(?:mat hang|san pham|sp|mon|hang|khach|khach hang|nguoi|nhan vien|nhom|loai|thuoc|nha cung cap|ncc)'
+
+
+def _PLURAL(qn: str) -> bool:
+    """v2.3.2: hỏi nhiều phần tử. 'trong các khách hàng, ai … nhất' là phạm vi chọn, không phải hỏi danh sách."""
+    q = re.sub(r'\b(trong|giua|tu|o) (cac|nhung|tat ca cac) \w+( \w+)?', ' ', qn)
+    return bool(re.search(r'\b(nhung|cac|liet ke)\b', q))
+
+
 def _k(qn: str) -> Optional[int]:
-    m = re.search(r'\btop\s*(\d+)\b', qn) or re.search(r'\b(\d+)\s+(?:mat hang|san pham|mon|hang|khach|khach hang|nguoi|nhan vien|nhom|loai|thuoc)\b', qn)
+    # v2.3.2: số không được dính ngày tháng ('th 9/25 khách' không phải 25 khách); 'top năm' = top 5
+    m = (re.search(r'\btop\s*(\d+)\b(?!\s*[/\-]\s*\d)', qn)
+         or re.search(r'(?<![\d/.,\-])\b(\d+)\s+' + _KNOUN + r'\b', qn))
     if m:
         k = int(m[1])
         return k if 1 <= k <= 50 else None
+    m = (re.search(r'\btop\s+(' + '|'.join(_NUMW) + r')\b(?!\s*\d)', qn)
+         or re.search(r'(?<!\bthang )(?<!\bquy )\b(' + '|'.join(_NUMW) + r')\s+' + _KNOUN + r'\b', qn))
+    if m:
+        return _NUMW[m[1]]
     return None
 
 
@@ -383,13 +399,18 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
             return 'aov'
         if GP_WORDS.search(qn) and not re.search(r'\bdoanh thu\b', qn):
             return 'gross_profit'
-        if re.search(r'\b(so|may|bao nhieu|dem|tong so) (don|hoa don|luot mua)\b|\bmay don\b|\bso don\b', qn):
+        mo = re.search(r'\b(so|may|bao nhieu|dem|tong so) (don|hoa don|luot mua)\b|\bmay don\b|\bso don\b', qn)
+        # v2.3.2: 'dthu đơn tại quầy bao nhiêu, đơn qua điện thoại bao nhiêu' -> 'bao nhieu' của vế trước + 'đơn qua …' của vế sau
+        if mo and re.search(r'\b(doanh thu|doanh so)\b', qn) and \
+                re.match(r' (qua|tai|ban|tra|o|cua|online|offline|tren|dat|thanh toan|bang)\b', qn[mo.end():]):
+            mo = None
+        if mo:
             return 'orders'
         if re.search(r'\b(bao nhieu|may|so) khach\b', qn) and not re.search(r'\bkhach (nao|hang nao)\b', qn):
             return 'customers'
         if re.search(r'\b(doanh thu|doanh so)\b', qn) and not re.search(r'\bso luong\b', qn):
             return 'revenue'
-        if unit or re.search(r'\b(so luong|ban (ra |duoc )?(bao nhieu|may)(?! tien))\b', qn) and not re.search(r'\btien\b|doanh thu', qn):
+        if unit or re.search(r'\b(so luong|ban (ra |duoc )?(bao nhieu|may)(?! tien| dong\b| trieu\b))\b', qn) and not re.search(r'\btien\b|doanh thu|\b(may|bao nhieu) (dong|trieu)\b', qn):
             return 'qty'
         if re.search(REV_WORDS, qn):
             return 'revenue'
@@ -499,7 +520,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
     rd = rules.ranking_for(qn)
     if rd:
         k = _k(qn)
-        many = (k or 1) > 1 or bool(re.search(r'\b(nhung|cac|liet ke)\b', qn))
+        many = (k or 1) > 1 or bool(_PLURAL(qn))
         if rd.entity in ('customer', 'product', 'staff'):
             filters.pop({'customer': 'customer', 'product': 'product', 'staff': 'staff'}[rd.entity], None)
             at = AnswerType.LIST if many else AnswerType.STRING
@@ -548,7 +569,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
             else:
                 return none('top_customer', 'ranking criterion not stated')
             filters.pop('customer', None)
-            return res('top_customer', mk(met, 'top', group_by='customer', k=k or 1, answer_type=AnswerType.LIST if many or re.search(r'\b(nhung|cac|liet ke)\b', qn) else AnswerType.STRING))
+            return res('top_customer', mk(met, 'top', group_by='customer', k=k or 1, answer_type=AnswerType.LIST if many or _PLURAL(qn) else AnswerType.STRING))
         if re.search(r'\b(nhan vien|nguoi ban|thu ngan)\b', qn):
             if re.search(r'\b(nhieu don|so don|nhieu hoa don)\b', qn):
                 met = 'orders'
@@ -574,7 +595,7 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
             else:
                 return none('top_product', 'ranking criterion not stated')
             filters.pop('product', None)
-            lst = many or re.search(r'\b(nhung|cac|liet ke)\b', qn)
+            lst = many or _PLURAL(qn)
             return res('top_product', mk(met, 'top', group_by='product', k=k or 1, answer_type=AnswerType.LIST if lst else AnswerType.STRING))
 
     # ---- 10. giá bán

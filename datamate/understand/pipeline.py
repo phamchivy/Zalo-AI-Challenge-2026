@@ -35,9 +35,9 @@ def understand(q: Question, catalog, kb, ix: Optional[EntityIndex] = None) -> Un
     ctx.expected_types = sorted(et) if et else None
     reason = answerability.subjective(qn)
     if not reason and parse.plan is not None:
-        reason = answerability.out_of_range(parse.plan.periods, canon.date_min, canon.date_max, q.as_of_date)
+        reason = answerability.out_of_range(parse.plan.periods, canon.date_min, canon.date_max, q.as_of_date, qn)
     elif not reason and tp.ranges:
-        reason = answerability.out_of_range(tp.ranges, canon.date_min, canon.date_max, q.as_of_date)
+        reason = answerability.out_of_range(tp.ranges, canon.date_min, canon.date_max, q.as_of_date, qn)
     ctx.unanswerable_reason = reason
     if tp.flags:
         ctx.notes.append('time_flags=' + ','.join(sorted(tp.flags)))

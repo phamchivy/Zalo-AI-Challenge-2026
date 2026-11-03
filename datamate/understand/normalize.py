@@ -137,6 +137,9 @@ def qnorm(text: str) -> str:
     # 'gọi chong', 'chong quý 1' (= trong); không đụng tên hàng 'ốp chống sốc', 'kem chống nắng'
     t = re.sub(r'\bchong\b(?= (quy|thang|tuan|nam|ngay|it nhat|\d|t\d|th\d))|(?<=\bgoi )chong\b', 'trong', t)
     t = re.sub(r'\bgop mat\b', 'co mat', t)
+    t = re.sub(r'\bbua nao\b', 'ngay nao', t)                                      # 'bữa nào' = ngày nào
+    # 'mấy đơng tiền hàng từ 760k' = đơn (đồng tiền không đi với ngưỡng 'từ … trở lên')
+    t = re.sub(r'\b(may|bao nhieu|so) dong\b(?=(?: \w+){0,4} (tu|tren|hon|it nhat|toi thieu) \d)', r'\1 don', t)
     t = re.sub(r'\bchot (duoc|dc|them)\b', r'ban \1', t)               # 'chốt được mấy đơn' = bán được
     t = re.sub(r'\b(bao nhieu|nhieu|bang nhieu|bang) tieng\b', r'\1 tien', t)   # 'nhiêu tiếng' (gõ nhầm 'tiền')
     t = re.sub(r'\bmua nhieu tieng\b', 'mua nhieu tien', t)

@@ -85,7 +85,9 @@ def test_catalog_structure(tmp_path):
     L = c.canon.lines
     assert L['order_id'].nunique() == 60                        # 120 dòng, 60 đơn theo nhóm STT
     assert 'product_name' in L.columns and L['product_name'].notna().all()
-    assert L['amount'].sum() == pytest.approx(60 * (580000 + 570000) - 60 * 10000)   # bớt ở dòng đầu trừ vào doanh thu
+    # v2.3.2: 'Bớt' chỉ ghi ở dòng đầu đơn = giảm của cả đơn (rulebook §1: không trừ vào doanh thu) -> order_discount
+    assert L['amount'].sum() == pytest.approx(60 * (580000 + 570000))
+    assert 'line_discount' not in L.columns and L['order_discount'].eq(10000).all()
     o = c.canon.orders.set_index('order_id')
     assert o['paid'].dropna().eq(1_140_000).all()
 

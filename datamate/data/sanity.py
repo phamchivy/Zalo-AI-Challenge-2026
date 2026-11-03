@@ -132,6 +132,26 @@ def order_level(f: pd.DataFrame, col: str, key: str = 'order_id', min_orders: in
     return bool(((st['cnt'] == st['n']) & (st['nu'] == 1)).mean() >= 0.9)
 
 
+def first_line_only(f: pd.DataFrame, col: str, key: str = 'order_id', min_orders: int = 20) -> bool:
+    """v2.3.2: cột chỉ ghi ở DÒNG ĐẦU của đơn nhiều dòng, các dòng sau trống/0 (sổ tay ghi 'Bớt' cho cả đơn ở dòng đầu).
+    Xét các đơn nhiều dòng có giá trị khác 0: >= 90% đơn chỉ có giá trị ở dòng đầu -> giá trị cấp đơn."""
+    if col not in f.columns or key not in f.columns:
+        return False
+    v = pd.DataFrame({'k': f[key], 'x': f[col].map(to_num)})
+    v = v[v['k'].notna()]
+    n = v.groupby('k', sort=False)['x'].transform('size')
+    v = v[n >= 2]
+    if v.empty:
+        return False
+    nz = v['x'].fillna(0).abs() > 0
+    first = ~v['k'].duplicated()
+    g = pd.DataFrame({'nz_first': (nz & first).groupby(v['k']).any(), 'nz_rest': (nz & ~first).groupby(v['k']).any()})
+    g = g[g['nz_first'] | g['nz_rest']]
+    if len(g) < min_orders:
+        return False
+    return bool((g['nz_first'] & ~g['nz_rest']).mean() >= 0.9)
+
+
 def stt_groups(L: pd.DataFrame) -> Optional[pd.Series]:
     """Sổ ghi tay không có mã đơn: số thứ tự (STT) chỉ ghi ở dòng đầu mỗi đơn, dòng sau để trống.
     Trả về khoá đơn = (bảng, số nhóm) nếu cấu trúc này được xác nhận bằng dữ liệu, None nếu không chắc.
@@ -173,7 +193,7 @@ def amount_is_gross(L: pd.DataFrame) -> bool:
     need = {'amount', 'qty', 'unit_price', 'line_discount'}
     if not need <= set(L.columns):
         return False
-    if 'order_id' in L.columns and order_level(L, 'line_discount'):
+    if 'order_id' in L.columns and (order_level(L, 'line_discount') or first_line_only(L, 'line_discount')):
         return False
     d = L['line_discount'].fillna(0)
     m = (d > 100) & L['qty'].notna() & L['unit_price'].notna() & L['amount'].notna()
@@ -182,3 +202,27 @@ def amount_is_gross(L: pd.DataFrame) -> bool:
     gross = (L.loc[m, 'qty'] * L.loc[m, 'unit_price'] - L.loc[m, 'amount']).abs() < 1.0
     net = (L.loc[m, 'qty'] * L.loc[m, 'unit_price'] - L.loc[m, 'line_discount'] - L.loc[m, 'amount']).abs() < 1.0
     return gross.mean() > 0.9 and net.mean() < 0.1
+
+
+def paid_reconcile(L: pd.DataFrame) -> dict:
+    """v2.3.2 đối soát (chỉ chẩn đoán): tiền khách trả của đơn so với tổng tiền dòng hàng.
+    paid_eq_lines: tỉ lệ đơn khách trả = tổng dòng; paid_eq_lines_minus_od: = tổng dòng - giảm cả đơn.
+    Hai tỉ lệ đều thấp -> cách hiểu cột tiền của shop đáng ngờ (ghi vào health để xem lại / hạ tin cậy sau này)."""
+    if L.empty or 'paid' not in L.columns or 'amount' not in L.columns or 'order_id' not in L.columns:
+        return {}
+    prod = L[~L['is_nonproduct']] if 'is_nonproduct' in L.columns else L
+    if 'status' in prod.columns:
+        prod = prod[prod['status'] == 'completed']
+    g = prod.groupby('order_id', sort=False)
+    s = g['amount'].sum()
+    paid = g['paid'].first()
+    m = paid.notna() & (paid > 0)
+    if 'debt' in prod.columns:
+        m &= ~(g['debt'].first().fillna(0) > 0)
+    if m.sum() < 20:
+        return {}
+    out = {'paid_orders': int(m.sum()), 'paid_eq_lines': round(float(((paid[m] - s[m]).abs() <= 1).mean()), 4)}
+    if 'order_discount' in prod.columns:
+        od = g['order_discount'].first().fillna(0)
+        out['paid_eq_lines_minus_od'] = round(float(((paid[m] - (s[m] - od[m])).abs() <= 1).mean()), 4)
+    return out

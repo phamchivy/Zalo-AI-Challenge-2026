@@ -24,8 +24,8 @@ import pandas as pd
 from datamate.core.textutil import customer_key, fold, is_walkin, parse_date, parse_time, strip_phone, to_num, year_from_text
 from datamate.data.raw_loader import RawTable
 from datamate.data.readme import ReadmeInfo, convention_flags
-from datamate.data.sanity import (amount_is_gross, clean_line_frame, dedupe_sources, is_summary_label, order_level,
-                                  reconcile, stt_groups)
+from datamate.data.sanity import (amount_is_gross, clean_line_frame, dedupe_sources, first_line_only, is_summary_label,
+                                  order_level, paid_reconcile, reconcile, stt_groups)
 from datamate.data.schema_mapper import BusinessMapping, TableMapping
 from datamate.data.vocab import is_nonproduct, is_service_fee, norm_payment, norm_status, status_from_note
 
@@ -285,6 +285,15 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
     else:
         O_all = None
 
+    # ---- 3b. v2.3.2: cột "giảm dòng" thực ra là giảm của cả đơn (lặp trên mọi dòng, hoặc chỉ ghi ở dòng đầu đơn).
+    # Kiểm sau khi đã có khoá đơn (sổ ghi tay: khoá đơn lấy từ nhóm STT nên bước 1 chưa kiểm được).
+    if real_order_id and 'line_discount' in L.columns and (order_level(L, 'line_discount') or first_line_only(L, 'line_discount')):
+        od = L.groupby('order_id', sort=False)['line_discount'].transform('first')
+        if 'order_discount' not in L.columns or L['order_discount'].isna().all():
+            L['order_discount'] = od
+        L = L.drop(columns=['line_discount'])
+        notes.append('line discount column is order-level (first line of order / repeated): moved to order_discount')
+
     # ---- 4. ô trống ở dòng sau cùng nhóm = dòng đầu nhóm (§8)
     if real_order_id:
         lvl = [c for c in ORDER_LEVEL if c in L.columns and L[c].isna().any()]
@@ -440,6 +449,10 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
     lots, lot_sales = _build_lots(raw, bm, products, purchases, units)
     deliveries = _build_deliveries(raw, bm)
     health.update(reconcile(L, orders if O_all is not None else None))
+    try:
+        health.update(paid_reconcile(L))
+    except Exception as e:  # noqa: BLE001 - chỉ chẩn đoán
+        notes.append(f'paid_reconcile lỗi: {e!r}'[:120])
 
     # ---- 12. capabilities
     caps = set()
