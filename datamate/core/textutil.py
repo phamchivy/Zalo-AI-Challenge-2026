@@ -63,6 +63,9 @@ def is_walkin(name: Any) -> bool:
 _NUM_GROUPED = re.compile(r'^-?\d{1,3}([.,]\d{3})+$')
 
 
+_NUM_SPACED = re.compile(r'^[-−(]?\s*(\d{1,3}(?:[ \u00a0\u202f]\d{3})+)(?=$|\s*(?:đ|₫|d|vnd|vnđ|\))?\s*$)')
+
+
 def to_num(v: Any) -> Optional[float]:
     """'560,000' / '38000' / '1.200.000đ' / '1 gói' / '18.6' / '-12,5' / '407k' / '2,176tr' / '(5.000)' -> số.
     None nếu không đọc được."""
@@ -76,6 +79,10 @@ def to_num(v: Any) -> Optional[float]:
     if s in ('', 'nan', 'none', '-', 'null', 'nat'):
         return None
     neg = s.startswith('-') or s.startswith('−') or (s.startswith('(') and s.endswith(')'))
+    # v2.5.0: nhóm nghìn bằng khoảng trắng '1 851 000', '113 889', '10 000đ' (không phải '1 gói', '2 100ml')
+    sp = _NUM_SPACED.match(s)
+    if sp:
+        s = s[:sp.start(1)] + re.sub(r'[\s\u00a0\u202f]', '', sp.group(1)) + s[sp.end(1):]
     m = re.search(r'\d[\d.,]*', s)
     if not m:
         return None

@@ -19,6 +19,7 @@ from datamate.core.registry import get_strategy
 from datamate.core.types import AnswerType, Decision, Question, Trace
 from datamate.data.catalog import build_all
 from datamate.decision.voter import decide
+from datamate.decision.data_guard import guard as data_guard
 from datamate.execution.sandbox import Sandbox
 from datamate.knowledge.base import KnowledgeBase
 from datamate.output.writer import SubmissionWriter
@@ -111,6 +112,12 @@ class Orchestrator:
                     c.error = f'type_contract: {c.answer_type.value} not in {sorted(exp)}'
 
         def finish(q, intent, times, cands, d, t0):
+            cat = cats.get(q.business_id)
+            levels = (cat.canon.health or {}).get('invariants') if cat is not None else None
+            d2 = data_guard(d, intent, levels, self.cfg.decision.data_guard)
+            if d2 is not d:
+                stats['data_guard_blocked'] += 1
+                d = d2
             tr = Trace(qid=q.id, business_id=q.business_id, question=q.question, as_of_date=q.as_of_date, intent=intent,
                        times=times, candidates=cands, decision=d, elapsed_sec=round(time.time() - t0, 3), config=self.cfg.name)
             writer.write(d, tr)

@@ -34,6 +34,7 @@ LEVELS = {
     'DATE_parsed': (0.005, 0.02),
     'DATE_range': (0.005, 0.02),
     'STOCK_card': (0.01, 0.05),
+    'I5_unit_factor': (0.02, 0.10),
 }
 PAYMENT_KEYS = {'cash', 'transfer', 'ewallet', 'cod', 'debt', 'card'}
 
@@ -303,6 +304,22 @@ def inv_dates(L: pd.DataFrame, date_end: Optional[Any]) -> tuple[InvResult, InvR
     return a.finish(), b.finish()
 
 
+def inv_unit_factor(L: pd.DataFrame, units: Optional[pd.DataFrame]) -> InvResult:
+    """I5 (v2.5.0): dòng bán theo đơn vị KHÁC đơn vị cơ bản phải có hệ số quy đổi ≠ 1.
+    Phát hiện bảng quy đổi không gán được (đổi tên cột 'Tên sản phẩm'…) -> số lượng quy đổi sai im lặng."""
+    r = InvResult('I5_unit_factor')
+    if not {'unit_f', 'base_unit_f', 'factor'} <= set(L.columns):
+        r.note = 'không có đơn vị / đơn vị cơ bản'
+        return r.finish()
+    m = L['unit_f'].notna() & L['base_unit_f'].notna() & (L['unit_f'] != L['base_unit_f'])
+    f = pd.to_numeric(L['factor'], errors='coerce')
+    bad = m & (f.isna() | (f == 1))
+    r.n, r.bad = int(m.sum()), int(bad.sum())
+    r.note = f'bảng quy đổi: {0 if units is None else len(units)} dòng'
+    r.examples = _ex(L, bad, ['product_name', 'unit', 'base_unit', 'factor', 'qty'])
+    return r.finish()
+
+
 def inv_stock_card(S: pd.DataFrame, L: pd.DataFrame) -> InvResult:
     """Thẻ kho (tồn sau mỗi phát sinh): tồn không âm. Đặt nền cho tính tồn ngược từ snapshot (v2.4.x)."""
     r = InvResult('STOCK_card')
@@ -323,7 +340,8 @@ def check_canon(canon, readme=None) -> dict:
     for fn in (lambda: inv_line_arith(L), lambda: inv_goods_total(L, O), lambda: inv_payable(O),
                lambda: inv_one_status(L), lambda: inv_status_mapped(L), lambda: inv_payment_mapped(O),
                lambda: inv_customer_join(O, canon.customers), lambda: inv_purchase_total(canon.purchases),
-               lambda: inv_money_scale(L), lambda: inv_stock_card(canon.stock, L)):
+               lambda: inv_money_scale(L), lambda: inv_stock_card(canon.stock, L),
+               lambda: inv_unit_factor(L, canon.units)):
         try:
             res.append(fn())
         except Exception as e:  # noqa: BLE001 - một invariant lỗi không làm hỏng cả báo cáo

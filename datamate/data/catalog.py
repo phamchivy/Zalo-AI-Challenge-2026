@@ -119,6 +119,14 @@ def build_catalog(biz_dir: str | Path, cache_dir: Optional[str] = None) -> Busin
         errors.append('canonical failed: ' + traceback.format_exc()[-800:])
         from datamate.data.canonical import _empty
         canon = _empty(['canonical failed'])
+    # v2.5.0: invariants lúc dự đoán -> mức từng invariant (dùng để chặn câu dựa trên phần dữ liệu đáng ngờ)
+    try:
+        from datamate.data.invariants import check_canon
+        rep = check_canon(canon, readme)
+        canon.health['invariants'] = {x['name']: x['level'] for x in rep['invariants']}
+        canon.health['inv_risk'] = rep['risk']
+    except Exception as e:  # noqa: BLE001
+        errors.append(f'invariants failed: {e!r}'[:200])
     cat = BusinessCatalog(business_id=bid, root=str(biz_dir), raw=raw, profiles=profiles, mapping=mapping, canon=canon,
                           readme=readme, build_sec=time.time() - t0, errors=errors)
     if cache_file:

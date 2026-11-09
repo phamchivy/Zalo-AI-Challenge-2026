@@ -49,6 +49,8 @@ class DecisionConfig(BaseModel):
     llm_keep_tier_a: bool = True                # tầng A đã trả lời (kể cả độ tin cậy < llm_skip_support) thì giữ nguyên
     llm_answer_types: Optional[list[str]] = None  # kiểu đáp án LLM được tự đưa ra khi tầng A bỏ trống; None = mọi kiểu
     llm_reject_zero: bool = True                # đáp án 0 / 0% / ±100% chỉ từ LLM -> bỏ trống
+    # v2.5.0 — invariants báo đỏ -> bỏ trống câu phụ thuộc phần dữ liệu đó; đáp án vô lý -> bỏ trống
+    data_guard: bool = True
 
 
 class Config(BaseModel):

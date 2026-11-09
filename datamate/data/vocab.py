@@ -49,6 +49,15 @@ def status_from_note(v: Any) -> Optional[str]:
         return 'returned'
     if re.search(r'dang giao|chua giao|dang ship|dang van chuyen', f):
         return 'shipping'
+    # v2.5.0: ghi chú chỉ gồm đúng một nhãn trạng thái của từ điển chung ('cancel', 'refund', 'pending'…)
+    g = ' '.join(re.sub(r'[^0-9a-z]+', ' ', f).split())
+    st = _STATUS_MAP.get(g)
+    if st in ('cancelled', 'returned', 'shipping'):
+        return st
+    if re.search(r'\b(cancel|cancell?ed|void)\b', g):
+        return 'cancelled'
+    if re.search(r'\b(return|returned|refund|refunded)\b', g):
+        return 'returned'
     return None
 
 
