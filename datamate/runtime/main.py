@@ -3,6 +3,7 @@
   python -m datamate.runtime.main predict --split /data --out /result --config configs/baseline.yaml
   python -m datamate.runtime.main eval    --split /path/train --pred /result/submission.jsonl
   python -m datamate.runtime.main build   --split /path/train            # chỉ build catalog + in tóm tắt mapping
+  python -m datamate.runtime.main invariants --split /path/public_test --out runs/invariants_public   # v2.4.0
   python -m datamate.runtime.main ask     --split /path/train --id q_0c8f3e07768f   # debug 1 câu (in candidates)
   python -m datamate.runtime.main rules   --split /path/public_test            # in luật đọc được từ rulebook (rules.json)
   python -m datamate.runtime.main calibrate --split /path/train --run runs/raw --out configs/calibration.yaml
@@ -156,6 +157,23 @@ def cmd_build(args):
     print(f'built {len(cats)} in {time.time() - t0:.1f}s')
 
 
+def cmd_invariants(args):
+    """v2.4.0: kiểm canonical không cần đáp án -> <out>.md + <out>.json."""
+    from datamate.data.invariants import render_markdown, run_split
+    cfg = _cfg(args)
+    t0 = time.time()
+    report, nq = run_split(args.split, cfg.cache_dir, args.biz, cfg.workers)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    name = Path(args.split).name or 'split'
+    out.with_suffix('.json').write_text(json.dumps({'split': args.split, 'n_questions': nq, 'shops': report},
+                                                   ensure_ascii=False, indent=1, default=str), encoding='utf-8')
+    out.with_suffix('.md').write_text(render_markdown(name, report, nq), encoding='utf-8')
+    reds = sorted(((b, r.get('red', 0)) for b, r in report.items() if r.get('red')), key=lambda x: -x[1])
+    print(f'{len(report)} shop trong {time.time() - t0:.1f}s; shop có ô đỏ: {reds}')
+    print(f'-> {out.with_suffix(".md")}, {out.with_suffix(".json")}')
+
+
 def cmd_ask(args):
     from datamate.runtime.orchestrator import Orchestrator
     cfg = _cfg(args)
@@ -223,6 +241,12 @@ def main(argv=None):
             p.add_argument('-v', '--verbose', action='store_true')
         if name == 'ask':
             p.add_argument('--show-program', action='store_true')
+    p = sub.add_parser('invariants', help='v2.4.0: kiểm canonical không cần đáp án (mọi split)')
+    p.add_argument('--split', required=True)
+    p.add_argument('--config', default=None)
+    p.add_argument('--set', action='append')
+    p.add_argument('--biz', nargs='*')
+    p.add_argument('--out', default='runs/invariants')
     p = sub.add_parser('eval')
     p.add_argument('--split', required=True)
     p.add_argument('--pred', required=True)
@@ -261,7 +285,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     {'predict': cmd_predict, 'eval': cmd_eval, 'build': cmd_build, 'ask': cmd_ask, 'rules': cmd_rules,
      'calibrate': cmd_calibrate, 'split-info': cmd_split_info, 'make-split': cmd_make_split,
-     'make-subset': cmd_make_subset, 'sweep': cmd_sweep}[args.cmd](args)
+     'make-subset': cmd_make_subset, 'sweep': cmd_sweep, 'invariants': cmd_invariants}[args.cmd](args)
 
 
 def _split_args(p):
