@@ -226,3 +226,140 @@ def paid_reconcile(L: pd.DataFrame) -> dict:
         od = g['order_discount'].first().fillna(0)
         out['paid_eq_lines_minus_od'] = round(float(((paid[m] - (s[m] - od[m])).abs() <= 1).mean()), 4)
     return out
+
+
+ORDER_MONEY = ['goods_total', 'order_total', 'paid', 'debt', 'order_discount', 'ship_fee', 'vat']
+
+
+def fix_order_money_scale(L: pd.DataFrame, notes: list) -> pd.DataFrame:
+    """v2.4.1: tiền CẤP ĐƠN ghi theo nghìn đồng trong khi tiền dòng ghi theo đồng (dev_007: tiền hàng 129 ↔ Σ dòng 129 000).
+    Quyết định theo dữ liệu: cột tổng của đơn (goods_total / order_total) ≈ Σ thành tiền dòng / 1000 trên >= 80% đơn
+    -> nhân 1000 các ô tiền cấp đơn nhỏ hơn hẳn Σ dòng của đơn (cùng quy ước ghi). Không theo tên shop/cột."""
+    if 'order_id' not in L.columns or 'amount' not in L.columns:
+        return L
+    ref_cols = [c for c in ('goods_total', 'order_total') if c in L.columns and L[c].notna().any()]
+    if not ref_cols:
+        return L
+    s = L.groupby('order_id', sort=False)['amount'].transform('sum')
+    first = ~L['order_id'].duplicated()
+    scaled = False
+    for c in ref_cols:
+        v = pd.to_numeric(L[c], errors='coerce')
+        m = first & v.notna() & (v > 0) & (s > 0)
+        if m.sum() < 20:
+            continue
+        r = (v[m] * 1000 / s[m])
+        share = float(((r > 0.8) & (r < 1.25)).mean())
+        if share >= 0.8:
+            scaled = True
+            notes.append(f'{c}: ghi theo nghìn đồng ({share:.0%} đơn khớp Σ dòng/1000) -> ×1000')
+            break
+    if not scaled:
+        return L
+    for c in ORDER_MONEY:
+        if c not in L.columns:
+            continue
+        v = pd.to_numeric(L[c], errors='coerce')
+        # ô có giá trị nhỏ hơn Σ dòng / 100 (đơn có Σ dòng >= 10 000) -> cùng quy ước nghìn đồng
+        small = v.notna() & (v != 0) & (s >= 10_000) & (v.abs() * 100 < s)
+        if c in ('order_discount', 'ship_fee', 'vat'):
+            small = v.notna() & (v != 0) & (v.abs() < 1000)
+        if small.any():
+            L[c] = v.where(~small, v * 1000)
+    return L
+
+
+_TOPPING = re.compile(r'^(?P<main>.+?)\s*\+\s*(?P<rest>.+)$')
+_TOP_ITEM = re.compile(r'^\s*(?P<name>[^()+]+?)\s*\(\s*(?P<price>\d[\d.,\s]*\s*(?:k|đ|d|vnd|vnđ)?)\s*\)\s*$', re.I)
+
+
+def _parse_toppings(name: str) -> Optional[tuple[str, list[tuple[str, float]]]]:
+    m = _TOPPING.match(name or '')
+    if not m:
+        return None
+    tops = []
+    for part in m['rest'].split('+'):
+        t = _TOP_ITEM.match(part)
+        if not t:
+            return None
+        price = to_num(t['price'])
+        if price is None or price <= 0:
+            return None
+        tops.append((t['name'].strip(), float(price)))
+    return m['main'].strip(), tops
+
+
+def split_toppings(L: pd.DataFrame, notes: list, min_lines: int = 20) -> pd.DataFrame:
+    """v2.4.1 (luật ngành cà phê, rulebook public §6): topping ghi chung ô với món ('Trà đào (M) + Trân châu đen (7.000đ)')
+    là HAI mặt hàng: tách thành dòng topping (SL = SL món, tiền = SL × giá topping) và trừ phần đó khỏi dòng món.
+    Chỉ áp khi dữ liệu xác nhận: thành tiền ≈ SL × (đơn giá + Σ giá topping) trên >= 80% dòng khớp mẫu."""
+    if 'product_name' not in L.columns or 'amount' not in L.columns or 'qty' not in L.columns:
+        return L
+    names = L['product_name'].dropna().astype(str)
+    cand = names[names.str.contains('+', regex=False) & names.str.contains(r'\(\s*\d', regex=True)]
+    if len(cand) < min_lines:
+        return L
+    parsed = {n: _parse_toppings(n) for n in cand.unique()}
+    parsed = {n: p for n, p in parsed.items() if p}
+    idx = L.index[L['product_name'].isin(list(parsed))]
+    if len(idx) < min_lines:
+        return L
+    q = pd.to_numeric(L.loc[idx, 'qty'], errors='coerce')
+    up = pd.to_numeric(L.loc[idx, 'unit_price'], errors='coerce') if 'unit_price' in L.columns else pd.Series(np.nan, index=idx)
+    top_sum = L.loc[idx, 'product_name'].map(lambda n: sum(p for _, p in parsed[n][1]))
+    amt = pd.to_numeric(L.loc[idx, 'amount'], errors='coerce')
+    ok = (amt - q * (up + top_sum)).abs() <= np.maximum(1, 0.06 * amt)       # cho phép giảm dòng nhỏ
+    if float(ok.mean()) < 0.8:
+        notes.append(f'topping chung ô: {len(idx)} dòng khớp mẫu nhưng tiền không xác nhận ({ok.mean():.0%}) -> không tách')
+        return L
+    # khoá mặt hàng của topping = khoá của cùng tên khi topping được ghi dòng riêng (rulebook: cùng mặt hàng)
+    key_of = {}
+    if 'product_key' in L.columns:
+        base = L.loc[~L.index.isin(idx), ['product_name', 'product_key']].dropna()
+        if len(base):
+            base = base.assign(nf=base['product_name'].map(fold))
+            key_of = base.groupby('nf')['product_key'].agg(lambda x: x.value_counts().index[0]).to_dict()
+    unit_of = {}
+    if 'unit' in L.columns:
+        bu = L.loc[~L.index.isin(idx), ['product_name', 'unit']].dropna()
+        if len(bu):
+            unit_of = bu.assign(nf=bu['product_name'].map(fold)).groupby('nf')['unit'].agg(lambda x: x.value_counts().index[0]).to_dict()
+    new_rows = []
+    for i in idx[ok.values]:
+        row = L.loc[i]
+        main, tops = parsed[row['product_name']]
+        qty = float(row['qty']) if pd.notna(row['qty']) else 1.0
+        total_top = 0.0
+        for tn, tp in tops:
+            r = row.copy()
+            nf = fold(tn)
+            r['product_name'] = tn
+            if 'product_key' in L.columns:
+                r['product_key'] = key_of.get(nf, nf)
+            if 'product_code' in L.columns:
+                r['product_code'] = None
+            if 'unit' in L.columns:
+                r['unit'] = unit_of.get(nf, row.get('unit'))
+            r['unit_price'] = tp
+            r['amount'] = tp * qty
+            for c in ('line_discount', 'amount_gross', 'cost_unit', 'cost'):
+                if c in L.columns:
+                    r[c] = np.nan
+            if 'factor' in L.columns:
+                r['factor'] = 1.0
+            if 'qty_base' in L.columns:
+                r['qty_base'] = qty
+            if 'line_no' in L.columns:
+                r['line_no'] = None
+            r['line_origin'] = 'topping'          # không bị khử trùng nhầm với dòng topping ghi riêng (§8)
+            new_rows.append(r)
+            total_top += tp * qty
+        L.at[i, 'amount'] = float(row['amount']) - total_top
+        L.at[i, 'product_name'] = main
+        if 'product_key' in L.columns:
+            mf = fold(main)
+            L.at[i, 'product_key'] = key_of.get(mf, mf)
+    if new_rows:
+        L = pd.concat([L, pd.DataFrame(new_rows)], ignore_index=True)
+        notes.append(f'topping chung ô: tách {int(ok.sum())} dòng -> +{len(new_rows)} dòng topping')
+    return L

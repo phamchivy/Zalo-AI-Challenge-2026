@@ -11,6 +11,7 @@ Tên trường theo canon hiện tại (canonical.py); bảng nối với canoni
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -21,7 +22,7 @@ from datamate.data.vocab import norm_status
 
 # ngưỡng tỉ lệ vi phạm: (vàng, đỏ). Ngưỡng thấp cho kiểm số học (dữ liệu sinh có quy luật chặt).
 LEVELS = {
-    'I1_line_arith': (0.01, 0.05),
+    'I1_line_arith': (0.03, 0.08),       # v2.4.1: giảm nhỏ không ghi cột (~1–2,5%) là dữ liệu thật
     'I2_goods_total': (0.01, 0.05),
     'I3_payable': (0.01, 0.05),
     'I6_one_status': (0.001, 0.01),
@@ -98,11 +99,18 @@ def inv_line_arith(L: pd.DataFrame) -> InvResult:
         f = _num(L['factor']).fillna(1)
         net_ok |= _close(a, q * f * p - d) | _close(a, q * p / f.replace(0, np.nan) - d)
     bad = m & ~net_ok
+    over = bad & (a > q * p + np.maximum(1, 0.005 * a.abs()))      # thành tiền LỚN hơn SL × giá: gộp thêm thứ khác vào dòng
     r.n, r.bad = int(m.sum()), int(bad.sum())
     if r.n:
-        r.note = f'khớp không trừ giảm dòng: {float((m & gross_ok).sum()) / r.n:.3f}'
-    r.examples = _ex(L, bad, ['order_id', 'product_name', 'qty', 'unit', 'unit_price', 'line_discount', 'amount'])
-    return r.finish()
+        r.note = (f'khớp không trừ giảm dòng: {float((m & gross_ok).sum()) / r.n:.3f}; '
+                  f'thành tiền > SL×giá: {int(over.sum())} dòng')
+    show = over if over.any() else bad
+    r.examples = _ex(L, show, ['order_id', 'product_name', 'qty', 'unit', 'unit_price', 'line_discount', 'amount'])
+    r.finish()
+    # v2.4.1: chiều 'lớn hơn' (topping/phụ phí gộp ô, đơn giá sai cột) là dấu hiệu lỗi dựng bảng dù tỉ lệ thấp
+    if r.n and over.sum() / r.n > 0.005:
+        r.level = 'red' if over.sum() / r.n > 0.01 else max(r.level, 'yellow', key=['na', 'green', 'yellow', 'red'].index)
+    return r
 
 
 def inv_goods_total(L: pd.DataFrame, O: pd.DataFrame) -> InvResult:
@@ -136,11 +144,21 @@ def inv_payable(O: pd.DataFrame) -> InvResult:
     fee = _num(O['ship_fee']).fillna(0) if 'ship_fee' in O.columns else 0
     vat = _num(O['vat']).fillna(0) if 'vat' in O.columns else 0
     m = g.notna() & t.notna()
-    ok = _close(t, g - od + fee) | _close(t, g - od + fee + vat)
+    exp = g - od + fee
+    ok = _close(t, exp) | _close(t, exp + vat)
     bad = m & ~ok
     r.n, r.bad = int(m.sum()), int(bad.sum())
     r.examples = _ex(O, bad, ['order_id', 'goods_total', 'order_discount', 'ship_fee', 'vat', 'order_total'])
-    return r.finish()
+    r.finish()
+    # v2.4.1: lệch là vài hằng số (phí giao 15k, voucher 10k… không có cột riêng) -> khoản chưa gán, không phải map sai
+    if r.bad:
+        off = (t - exp)[bad].round(-2).value_counts()
+        top = off.head(2)
+        if top.sum() >= 0.9 * r.bad:
+            r.level = 'yellow'
+            r.note = 'lệch hằng số: ' + ', '.join(f'{v:+,.0f}đ ({c} đơn)' for v, c in top.items()) + \
+                     ' -> phí giao / voucher chưa có cột hoặc chưa gán'
+    return r
 
 
 def inv_one_status(L: pd.DataFrame) -> InvResult:
@@ -161,7 +179,20 @@ def inv_status_mapped(L: pd.DataFrame) -> InvResult:
     canonical hiện coi nhãn lạ là 'completed' (âm thầm) -> invariant này lộ ra các nhãn đó."""
     r = InvResult('I15_status_mapped')
     if 'status_raw' not in L.columns:
-        r.note = 'không có cột trạng thái gốc'
+        # v2.4.1: trạng thái lấy từ Ghi chú -> ghi chú có từ khoá trạng thái mà không gán được
+        if 'note' not in L.columns:
+            r.note = 'không có cột trạng thái gốc'
+            return r.finish()
+        from datamate.data.vocab import status_from_note
+        from datamate.core.textutil import fold
+        notes = L['note'].dropna().astype(str)
+        notes = notes[notes.str.strip() != '']
+        vals = notes.value_counts()
+        kw = r'\b(huy|tra hang|tra lai|khach tra|hoan hang|hoan tra|doi tra|dang giao|chua giao|dang ship|cancel\w*|return\w*|bom hang|refund\w*)\b'
+        unk = {v: c for v, c in vals.items() if re.search(kw, fold(v) or '') and status_from_note(v) is None}
+        r.n, r.bad = int(vals.sum()), int(sum(unk.values()))
+        r.note = f'trạng thái từ Ghi chú: {len(vals)} ghi chú khác nhau'
+        r.examples = [{'ghi_chu': k, 'so_dong': int(c)} for k, c in sorted(unk.items(), key=lambda x: -x[1])[:5]]
         return r.finish()
     raw = L['status_raw'].dropna().astype(str)
     raw = raw[raw.str.strip() != '']

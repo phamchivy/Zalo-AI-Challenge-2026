@@ -62,12 +62,31 @@ PAYMENT = {
 }
 
 
+# v2.4.1: khớp theo từ khoá trong nhãn (sau khi bỏ dấu câu), không đòi khớp nguyên chuỗi:
+# 'Thu hộ (COD)' -> cod; 'Chuyển khoản NH' -> transfer. Thứ tự: nhãn đặc thù trước (cod, nợ) rồi tới chung.
+PAYMENT_KW = [
+    ('cod', r'\bcod\b|\bthu ho\b|giao hang thu tien|nhan hang (moi )?tra tien'),
+    ('debt', r'\bghi no\b|\bcong no\b|\bmua chiu\b|\bban chiu\b|\btra sau\b|\btra gop\b'),
+    ('ewallet', r'\bvi dien tu\b|\bmomo\b|\bzalo ?pay\b|\bvnpay\b|\bshopee ?pay\b|\be ?wallet\b'),
+    ('card', r'\bquet the\b|\bthe (ngan hang|tin dung|ghi no|atm|visa)\b|\bvisa\b|\bmastercard\b'),
+    ('transfer', r'\bchuyen khoan\b|\bngan hang\b|\bbanking\b|\bqr\b|\btransfer\b'),
+    ('cash', r'\btien mat\b|\bcash\b'),
+]
+
+
 def norm_payment(v: Any) -> Optional[str]:
     f = fold(v)
     if not f:
         return None
     for k, rx in PAYMENT.items():
         if re.search(rx, f):
+            return k
+    g = ' '.join(re.sub(r'[^0-9a-z]+', ' ', f).split())
+    for k, rx in PAYMENT.items():                   # '(cod)', 'ck.' -> bỏ dấu câu rồi khớp nguyên chuỗi
+        if re.search(rx, g):
+            return k
+    for k, rx in PAYMENT_KW:
+        if re.search(rx, g):
             return k
     return f
 

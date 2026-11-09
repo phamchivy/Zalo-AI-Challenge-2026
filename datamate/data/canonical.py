@@ -24,8 +24,8 @@ import pandas as pd
 from datamate.core.textutil import customer_key, fold, is_walkin, parse_date, parse_time, strip_phone, to_num, year_from_text
 from datamate.data.raw_loader import RawTable
 from datamate.data.readme import ReadmeInfo, convention_flags
-from datamate.data.sanity import (amount_is_gross, clean_line_frame, dedupe_sources, first_line_only, is_summary_label,
-                                  order_level, paid_reconcile, reconcile, stt_groups)
+from datamate.data.sanity import (amount_is_gross, clean_line_frame, dedupe_sources, first_line_only, fix_order_money_scale,
+                                  is_summary_label, order_level, paid_reconcile, reconcile, split_toppings, stt_groups)
 from datamate.data.schema_mapper import BusinessMapping, TableMapping
 from datamate.data.vocab import is_nonproduct, is_service_fee, norm_payment, norm_status, status_from_note
 
@@ -367,6 +367,23 @@ def build_canonical(raw: dict[str, RawTable], bm: BusinessMapping, info: ReadmeI
         L['amount_gross'] = L['amount']
         L['amount'] = L['amount'] - L['line_discount'].fillna(0)
         notes.append('amount column was gross: subtract line discount')
+    # ---- 6b. v2.4.1: tiền cấp đơn ghi theo nghìn đồng (khác quy ước tiền dòng) -> đưa về đồng
+    L = fix_order_money_scale(L, notes)
+    # ---- 6c. v2.4.1: topping ghi chung ô với món -> hai mặt hàng (luật ngành, chỉ áp khi tiền xác nhận)
+    n0 = len(L)
+    L = split_toppings(L, notes)
+    if len(L) > n0:
+        new = L.index >= n0
+        if 'unit' in L.columns:
+            L['unit_f'] = L['unit'].map(fold)
+        if not products.empty:
+            pinfo = products.set_index('product_key')
+            for c in ('category', 'base_unit', 'product_code'):
+                if c in pinfo.columns and c in L.columns:
+                    L.loc[new, c] = L.loc[new, 'product_key'].map(pinfo[c].to_dict())
+        if 'base_unit' in L.columns:
+            L.loc[new, 'base_unit'] = L.loc[new, 'base_unit'].fillna(L.loc[new, 'unit'] if 'unit' in L.columns else None)
+            L['base_unit_f'] = L['base_unit'].map(fold)
 
     # ---- 7. dòng không phải hàng / phí phục vụ
     pn = L['product_name'] if 'product_name' in L.columns else pd.Series([None] * len(L), index=L.index, dtype=object)
