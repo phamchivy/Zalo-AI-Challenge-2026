@@ -204,6 +204,9 @@ def make(args):
                         except Exception as e:  # noqa: BLE001
                             print(f'  ! {nb} {rel}: {e!r}'[:200])
                 if renames:
+                    # ghi lại để mapdiff quy tên mới về tên gốc (file không nằm trong thư mục dữ liệu của shop)
+                    (out / 'renames').mkdir(exist_ok=True)
+                    (out / 'renames' / f'{nb}.json').write_text(json.dumps(renames, ensure_ascii=False), encoding='utf-8')
                     rd = next((p for p in dst.iterdir() if p.name.lower() == 'readme.md'), None)
                     if rd:
                         txt = rd.read_text(encoding='utf-8')
@@ -247,10 +250,59 @@ def report(args):
         if base and p != 'clean':
             extra = f'   (so với sạch: đúng {ok - base[0]:+d}, sai {bad - base[1]:+d}, bỏ {ab - base[2]:+d})'
         print(f'{p:<10} {ok:>6} {bad:>5} {ab:>5} {(ok - bad) / n:>7.3f}{extra}')
+    if args.errors:
+        out = pred / 'dirty_errors.jsonl'
+        with open(out, 'w', encoding='utf-8') as fo:
+            for qid, g in gold.items():
+                r = sub.get(qid, {'type': 'abstain'})
+                if r.get('type') == 'abstain' or score_one({'type': r.get('type'), 'answer': r.get('answer')}, g) != -1:
+                    continue
+                lg = pred / 'logs' / f'{qid}.json'
+                d = json.loads(lg.read_text(encoding='utf-8')) if lg.exists() else {}
+                fo.write(json.dumps({'id': qid, 'biz': d.get('business_id'), 'intent': d.get('intent'), 'q': d.get('question'),
+                                     'gold': g.get('answer'), 'pred': r.get('answer')}, ensure_ascii=False) + '\n')
+        print(f'câu sai -> {out}')
     if args.shops:
         for b in sorted(per_shop):
             ok, bad, ab = per_shop[b]
             print(f'  {b:<24} đúng={ok} sai={bad} bỏ={ab}')
+
+
+def mapdiff(args):
+    """So vai trò cột giữa bản sạch và bản làm bẩn của từng shop: role nào mất / đổi cột / gán thêm."""
+    from datamate.data.catalog import build_catalog
+    data = Path(args.split) / 'data'
+    shops = sorted({p.name.rsplit('__', 1)[0] for p in data.iterdir() if '__' in p.name})
+    for b in shops:
+        base = build_catalog(data / f'{b}__clean', args.cache)
+        for pert in (args.perts or ['ren']):
+            d = data / f'{b}__{pert}'
+            if not d.exists():
+                continue
+            cat = build_catalog(d, args.cache)
+            rf = Path(args.split) / 'renames' / f'{b}__{pert}.json'
+            back = {v: k for k, v in json.loads(rf.read_text(encoding='utf-8')).items()} if rf.exists() else {}
+            lines = []
+            for tname, m0 in base.mapping.tables.items():
+                m1 = cat.mapping.tables.get(tname)
+                if m1 is None:
+                    lines.append(f'  [{tname}] mất cả bảng (clean: {m0.ttype})')
+                    continue
+                if m1.ttype != m0.ttype:
+                    lines.append(f'  [{tname}] loại bảng {m0.ttype} -> {m1.ttype}')
+                for role in sorted(set(m0.roles) | set(m1.roles)):
+                    c0, c1 = m0.roles.get(role), m1.roles.get(role)
+                    c1 = back.get(c1, c1)                      # tên mới -> tên gốc
+                    if c0 and not c1:
+                        lines.append(f'  [{tname}] MẤT {role} (clean: {c0!r})')
+                    elif c1 and not c0:
+                        lines.append(f'  [{tname}] THÊM {role} = {c1!r}')
+                    elif c0 and c1 and c0 != c1:
+                        lines.append(f'  [{tname}] {role}: {c0!r} -> {c1!r}')
+            inv = {k: v for k, v in (cat.canon.health or {}).get('invariants', {}).items() if v in ('red', 'yellow')}
+            print(f'{b}__{pert}: {len(lines)} khác biệt; invariants vàng/đỏ: {inv}')
+            for l in lines:
+                print(l)
 
 
 def main():
@@ -268,8 +320,13 @@ def main():
     p.add_argument('--split', required=True)
     p.add_argument('--pred', required=True)
     p.add_argument('--shops', action='store_true')
+    p.add_argument('--errors', action='store_true', help='ghi các câu sai ra <pred>/dirty_errors.jsonl')
+    p = sub.add_parser('mapdiff')
+    p.add_argument('--split', required=True)
+    p.add_argument('--perts', nargs='*', choices=PERTS)
+    p.add_argument('--cache', default='/tmp/datamate_cache')
     a = ap.parse_args()
-    {'make': make, 'report': report}[a.cmd](a)
+    {'make': make, 'report': report, 'mapdiff': mapdiff}[a.cmd](a)
 
 
 if __name__ == '__main__':
