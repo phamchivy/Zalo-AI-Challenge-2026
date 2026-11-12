@@ -35,6 +35,7 @@ LEVELS = {
     'DATE_range': (0.005, 0.02),
     'STOCK_card': (0.01, 0.05),
     'I5_unit_factor': (0.02, 0.10),
+    'COVERAGE_child': (0.5, 0.5),
 }
 PAYMENT_KEYS = {'cash', 'transfer', 'ewallet', 'cod', 'debt', 'card'}
 
@@ -424,6 +425,12 @@ def run_split(split_dir: str, cache_dir: str, biz: Optional[list[str]] = None, w
             continue
         try:
             report[b] = check_canon(c.canon, c.readme)
+            cov = (c.canon.health or {}).get('coverage')
+            if cov:                                   # v3.0-a: độ phủ bảng con (tính lúc build catalog)
+                report[b]['invariants'].append(cov)
+                if cov['level'] == 'red':
+                    report[b]['red'] += 1
+                    report[b]['risk'] += 3
         except Exception as e:  # noqa: BLE001
             report[b] = {'error': repr(e)[:300]}
     return report, nq

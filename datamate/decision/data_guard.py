@@ -30,6 +30,7 @@ QTY_INTENTS = {'qty_sold', 'top_product', 'qty_unit', 'product_count', 'stock_qt
                'price_effect', 'inventory', 'dead_stock'}
 
 DEPENDS: dict[str, object] = {
+    'COVERAGE_child': _ORDER_BASED,
     'I5_unit_factor': QTY_INTENTS,
     'DATE_parsed': _ORDER_BASED,
     'DATE_range': _ORDER_BASED,

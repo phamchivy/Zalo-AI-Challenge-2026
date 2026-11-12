@@ -112,6 +112,9 @@ def build_catalog(biz_dir: str | Path, cache_dir: Optional[str] = None) -> Busin
         errors.extend(t.notes if t.kind == 'error' else [])
     profiles = {n: profile_table(t) for n, t in raw.items() if t.kind != 'error'}
     mapping = map_business(profiles, readme)
+    # v3.0-a: bổ sung role / loại bảng còn thiếu từ quan hệ GIÁ TRỊ giữa các bảng (không dùng tên cột)
+    from datamate.data.structure import infer_structure
+    struct = infer_structure({n: raw[n] for n in profiles}, profiles, mapping)
     try:
         canon = build_canonical({n: raw[n] for n in profiles}, mapping, readme)
     except Exception as e:  # noqa: BLE001 - tầng A hỏng không được làm sập cả shop: tầng B vẫn chạy trên bảng gốc
@@ -123,8 +126,13 @@ def build_catalog(biz_dir: str | Path, cache_dir: Optional[str] = None) -> Busin
     try:
         from datamate.data.invariants import check_canon
         rep = check_canon(canon, readme)
+        cov = struct.coverage()
         canon.health['invariants'] = {x['name']: x['level'] for x in rep['invariants']}
-        canon.health['inv_risk'] = rep['risk']
+        canon.health['invariants'][cov['name']] = cov['level']
+        canon.health['coverage'] = cov
+        canon.health['inv_risk'] = rep['risk'] + (3 if cov['level'] == 'red' else 0)
+        if struct.notes:
+            canon.notes.extend(struct.notes)
     except Exception as e:  # noqa: BLE001
         errors.append(f'invariants failed: {e!r}'[:200])
     cat = BusinessCatalog(business_id=bid, root=str(biz_dir), raw=raw, profiles=profiles, mapping=mapping, canon=canon,
