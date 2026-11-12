@@ -31,6 +31,7 @@ QTY_INTENTS = {'qty_sold', 'top_product', 'qty_unit', 'product_count', 'stock_qt
 
 DEPENDS: dict[str, object] = {
     'COVERAGE_child': _ORDER_BASED,
+    'STATUS_unresolved': _ORDER_BASED,          # v3.0.1: có cột trạng thái mà không hiểu -> số đơn/doanh thu không tin được
     'I5_unit_factor': QTY_INTENTS,
     'DATE_parsed': _ORDER_BASED,
     'DATE_range': _ORDER_BASED,

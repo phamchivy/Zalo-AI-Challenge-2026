@@ -56,6 +56,13 @@ CORE_ROLES = {
     'staff': 'nhân viên bán',
 }
 SALES_TYPES = {'sales_orders', 'sales_lines', 'sales_flat', 'sales', 'other'}
+# v3.0.1: vai trò hỏi LLM theo loại bảng (bảng đơn không hỏi vai trò dòng hàng và ngược lại) -> ít nhiễu hơn
+ORDER_ROLES = {'order_id', 'date', 'datetime', 'status', 'customer_code', 'customer_name', 'goods_total',
+               'order_discount', 'ship_fee', 'order_total', 'paid', 'debt', 'payment', 'channel', 'staff'}
+LINE_ROLES = {'order_id', 'product_code', 'product_name', 'unit', 'qty', 'unit_price', 'line_discount', 'amount'}
+ROLES_BY_TYPE = {'sales_orders': ORDER_ROLES, 'sales_lines': LINE_ROLES}
+STATUS_HOLDERS = {'sales_orders', 'sales_flat', 'sales'}     # loại bảng mang đơn hàng (có thể có trạng thái đơn)
+UNRESOLVED_CONF = 0.5         # LLM nói có cột trạng thái (>= mức này) mà cuối cùng không gán được -> báo đỏ
 
 _SYS = ('Bạn là bộ phân loại dữ liệu bán hàng của cửa hàng nhỏ ở Việt Nam. Chỉ dựa vào giá trị và mô tả được cung cấp. '
         'Không chắc thì chọn "unknown" (nhãn) hoặc "skip" (cột). Chỉ trả về một đối tượng JSON, không giải thích.')
@@ -151,14 +158,19 @@ def _profile_col(c: str, p, desc: Optional[str]) -> dict:
 
 def _role_candidates(tm, prof) -> tuple[list[str], list[str]]:
     allowed = ALLOWED.get('sales')
-    roles = [r for r in CORE_ROLES if r not in tm.roles and (allowed is None or r in allowed)]
+    by_type = ROLES_BY_TYPE.get(tm.ttype)
+    roles = [r for r in CORE_ROLES if r not in tm.roles and (allowed is None or r in allowed)
+             and (by_type is None or r in by_type)]
+    # cột hằng (1 giá trị: mã cửa hàng, mã chi nhánh…) không mang thông tin vai trò -> không gửi
     cols = [c for c, p in prof.columns.items()
-            if not c.startswith('__') and c not in tm.col_roles and p.null_rate < 0.95 and p.n_distinct >= 1]
+            if not c.startswith('__') and c not in tm.col_roles and p.null_rate < 0.95 and p.n_distinct >= 2]
     return roles, cols
 
 
-def suggest_roles(client, profiles, bm: BusinessMapping, min_conf: float = 0.8) -> dict[str, dict[str, tuple[str, float]]]:
-    """{bảng: {role: (cột, conf)}} — chỉ cho bảng bán hàng còn thiếu vai trò cốt lõi."""
+def suggest_roles(client, profiles, bm: BusinessMapping, min_conf: float = 0.8,
+                  raw_out: Optional[dict] = None) -> dict[str, dict[str, tuple[str, float]]]:
+    """{bảng: {role: (cột, conf)}} — chỉ cho bảng bán hàng còn thiếu vai trò cốt lõi.
+    raw_out (nếu truyền): {bảng: [(cột, role, conf), ...]} — toàn bộ đề xuất thô của LLM (để chẩn đoán / báo đỏ)."""
     from scipy.optimize import linear_sum_assignment
     out: dict[str, dict[str, tuple[str, float]]] = {}
     for t, tm in bm.tables.items():
@@ -198,6 +210,8 @@ def suggest_roles(client, profiles, bm: BusinessMapping, min_conf: float = 0.8) 
         res = client.ask(_SYS, user, schema, validate)
         if not res:
             continue
+        if raw_out is not None:
+            raw_out[t] = [(c, r, round(conf, 3)) for c, r, conf in res if r != 'skip']
         pairs = [(c, r, conf) for c, r, conf in res if r != 'skip' and conf >= min_conf
                  and _value_ok(ROLES[r][0], prof.columns[c])]
         if not pairs:
@@ -230,6 +244,28 @@ def apply_roles(bm: BusinessMapping, sugg: dict) -> BusinessMapping:
             if has_prod and has_line:
                 tm.ttype = 'sales_lines' if 'order_id' in tm.roles else 'sales_flat'
     return bm2
+
+
+def without_roles(sugg: dict, drop: set[str]) -> dict:
+    out = {t: {r: v for r, v in rs.items() if r not in drop} for t, rs in sugg.items()}
+    return {t: rs for t, rs in out.items() if rs}
+
+
+def status_unresolved(raw_out: dict, bm: BusinessMapping, min_conf: float = UNRESOLVED_CONF) -> list[str]:
+    """Bảng (loại có thể mang trạng thái đơn) mà LLM nói có cột trạng thái nhưng mapping cuối vẫn không có 'status'.
+
+    Khi đó mặc định 'mọi đơn hoàn tất' không còn an toàn (đơn huỷ/trả bị tính vào doanh thu, số đơn) -> báo đỏ.
+    Căn cứ là đề xuất của LLM trên giá trị cột, không phải tên cột."""
+    if any('status' in tm.roles for tm in bm.tables.values()):
+        return []                      # shop đã có cột trạng thái ở đâu đó: canonical đã dùng nó
+    bad = []
+    for t, res in (raw_out or {}).items():
+        tm = bm.tables.get(t)
+        if tm is None or tm.ttype not in STATUS_HOLDERS:
+            continue
+        if any(r == 'status' and conf >= min_conf for _, r, conf in res):
+            bad.append(t)
+    return bad
 
 
 def inv_score(levels: dict[str, str]) -> tuple:

@@ -134,21 +134,40 @@ def build_catalog(biz_dir: str | Path, cache_dir: Optional[str] = None, llm_cfg:
     try:
         canon = _canon_with_checks(rawp, mapping, readme, struct.uncovered_children, errors)
         # v3.0.0: LLM bổ sung vai trò còn thiếu -> dựng lại -> giữ bản có invariants tốt hơn (ngang nhau: giữ bản cũ)
+        # v3.0.1: vai trò theo loại bảng; cột trạng thái/thanh toán mới gán -> gán nhãn lại; bị loại thì thử bỏ 'status';
+        #         LLM nói có cột trạng thái mà vẫn không gán được -> STATUS_unresolved đỏ (không mặc định 'hoàn tất' im lặng)
         if client is not None and llm_cfg.get('roles', True):
             try:
-                from datamate.data.llm_mapper import apply_roles, inv_score, suggest_roles
+                from datamate.data.llm_mapper import (apply_roles, inv_score, label_enums, status_unresolved,
+                                                      suggest_roles, without_roles)
                 from datamate.data.structure import uncovered_children
-                sugg = suggest_roles(client, profiles, mapping, float(llm_cfg.get('min_conf', 0.8)))
-                if sugg:
-                    m2 = apply_roles(mapping, sugg)
+                raw_sugg: dict = {}
+                sugg = suggest_roles(client, profiles, mapping, float(llm_cfg.get('min_conf', 0.8)), raw_out=raw_sugg)
+                s0 = inv_score(canon.health.get('invariants', {}))
+                tries = [sugg]
+                if any('status' in rs for rs in sugg.values()):
+                    tries.append(without_roles(sugg, {'status'}))
+                for k, sg in enumerate(t for t in tries if t):
+                    m2 = apply_roles(mapping, sg)
+                    em2 = enum_map
+                    if llm_cfg.get('enums', True) and any({'status', 'payment'} & set(rs) for rs in sg.values()):
+                        em2 = _merge_enums(enum_map, label_enums(client, rawp, m2))
+                    set_enum_overrides(em2)
                     c2 = _canon_with_checks(rawp, m2, readme, uncovered_children(rawp, profiles, m2), errors)
-                    s0 = inv_score(canon.health.get('invariants', {}))
                     s1 = inv_score(c2.health.get('invariants', {}))
                     if s1 < s0:
-                        canon, mapping = c2, m2
-                        canon.notes.append(f'llm roles accepted {sugg} (invariants {s0} -> {s1})')
-                    else:
-                        canon.notes.append(f'llm roles rejected {sugg} (invariants {s0} -> {s1})')
+                        canon, mapping, enum_map = c2, m2, em2
+                        canon.notes.append(f'llm roles accepted {sg} (invariants {s0} -> {s1})')
+                        break
+                    set_enum_overrides(enum_map)
+                    canon.notes.append(f'llm roles rejected {sg} (invariants {s0} -> {s1})')
+                if raw_sugg:
+                    canon.health['llm_roles_raw'] = raw_sugg
+                bad = status_unresolved(raw_sugg, mapping)
+                if bad:
+                    canon.health.setdefault('invariants', {})['STATUS_unresolved'] = 'red'
+                    canon.notes.append(f'STATUS_unresolved: LLM thấy cột trạng thái ở {bad} nhưng không gán được '
+                                       '-> chặn câu dựa trên đơn')
             except Exception as e:  # noqa: BLE001
                 errors.append(f'llm roles failed: {e!r}'[:200])
         if enum_map.get('status') or enum_map.get('payment'):
@@ -157,6 +176,7 @@ def build_catalog(biz_dir: str | Path, cache_dir: Optional[str] = None, llm_cfg:
         if client is not None:
             canon.health['llm_calls'] = client.calls
             canon.health['llm_failures'] = client.failures
+            canon.health['llm_cache_hits'] = client.cache_hits
         if struct.notes:
             canon.notes.extend(struct.notes)
     finally:
@@ -171,6 +191,13 @@ def build_catalog(biz_dir: str | Path, cache_dir: Optional[str] = None, llm_cfg:
             log.warning('cache write failed: %r', e)
     log.info('catalog %s built in %.1fs: %s', bid, cat.build_sec, {k: v for k, v in cat.summary().items() if k in ('lines', 'orders', 'caps')})
     return cat
+
+
+def _merge_enums(a: dict, b: dict) -> dict:
+    out = {k: dict(v) for k, v in (a or {}).items()}
+    for k, v in (b or {}).items():
+        out.setdefault(k, {}).update(v)
+    return out
 
 
 def _canon_with_checks(rawp, mapping, readme, uncovered: list[str], errors: list[str]):

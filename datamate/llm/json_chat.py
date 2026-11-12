@@ -80,6 +80,7 @@ class JSONChat:
             self.cache.mkdir(parents=True, exist_ok=True)
         self.calls = 0
         self.failures = 0
+        self.cache_hits = 0          # v3.0.1: lấy từ cache không tính vào calls -> đếm riêng để chẩn đoán
 
     def _key(self, messages: list[dict], schema: Optional[dict]) -> str:
         h = hashlib.sha1(json.dumps([self.model, messages, schema], ensure_ascii=False, sort_keys=True).encode())
@@ -128,7 +129,9 @@ class JSONChat:
         key = self._key(messages, schema)
         if self.cache and (self.cache / f'{key}.json').exists():
             try:
-                return validate(json.loads((self.cache / f'{key}.json').read_text(encoding='utf-8')))
+                out = validate(json.loads((self.cache / f'{key}.json').read_text(encoding='utf-8')))
+                self.cache_hits += 1
+                return out
             except Exception:  # noqa: BLE001 - cache hỏng/không còn hợp lệ: gọi lại
                 pass
         last = None

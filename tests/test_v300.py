@@ -37,7 +37,7 @@ def _shop(tmp_path):
     for o in range(300):
         st = ['đã chốt đơn', 'khách bùng', 'khách gửi trả lại'][o % 3]
         rows.append({'Mã đơn': f'D{o:04d}', 'Ngày bán': '2025-03-01', 'Trạng thái': st, 'Tên hàng': f'Hàng {o % 9}',
-                     'Số lượng': 1, 'Đơn giá': 10000, 'Thành tiền': 10000, 'Khách đưa tiền': 10000})
+                     'Số lượng': 1, 'Đơn giá': 10000, 'Thành tiền': 10000, 'Khách đưa tiền': 10000 + 10000 * (o % 2)})
     pd.DataFrame(rows).to_csv(d / 'BanHang.csv', index=False)
     raw = load_business(d)
     profiles = {n: profile_table(t) for n, t in raw.items()}
