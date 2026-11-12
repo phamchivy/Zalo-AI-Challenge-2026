@@ -168,6 +168,35 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
     from datamate.agent import helpers as _h
     with open(pack_path, 'rb') as f:
         pack = pickle.load(f)
+
+    # v3.1.2: không có file trên đĩa cho code của agent -> báo rõ ngay (model nhỏ hay đoán tên file rồi tốn lượt)
+    def _no_files(*a, **k):
+        raise FileNotFoundError('Không có file nào để đọc: dữ liệu đã nạp sẵn trong canon[...] (đã chuẩn hoá) và '
+                                "tables[...] (bảng gốc). Gọi peek() để xem tên bảng và cột.")
+    for _fn in ('read_csv', 'read_excel', 'read_json', 'read_parquet', 'read_table'):
+        setattr(pd, _fn, _no_files)
+
+    def _show(v) -> str:
+        if isinstance(v, (pd.DataFrame, pd.Series)):
+            return v.to_string(max_rows=30, max_cols=20) if len(v) else f'({type(v).__name__} rỗng)'
+        if isinstance(v, np.generic):
+            v = v.item()                                 # np.int64(12) -> 12
+        s = repr(v)
+        return s if len(s) <= 3000 else s[:3000] + ' ...'
+
+    def _run_cell(code, ns):
+        """Như ô Jupyter: chạy cả đoạn; nếu dòng cuối là một biểu thức thì in giá trị của nó (trừ None)."""
+        import ast
+        tree = ast.parse(code, '<cell>', 'exec')
+        last = tree.body[-1] if tree.body else None
+        if isinstance(last, ast.Expr):
+            body = ast.Module(body=tree.body[:-1], type_ignores=[])
+            exec(compile(body, '<cell>', 'exec'), ns)
+            v = eval(compile(ast.Expression(last.value), '<cell>', 'eval'), ns)
+            if v is not None:
+                print(_show(v))
+        else:
+            exec(compile(tree, '<cell>', 'exec'), ns)
     tables = _Frames({k: v for k, v in (pack.get('tables') or {}).items() if v is not None})
     canon = _Frames({k: v for k, v in (pack.get('canon') or {}).items() if v is not None})
     meta = dict(pack.get('meta') or {})
@@ -271,6 +300,9 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
             print(_h.describe(src[name], str(name), k=k))
             return None
 
+        def _open_blocked(*a, **k):
+            raise FileNotFoundError('Không có file nào để mở: dùng canon[...] / tables[...] (peek() để xem).')
+        ns['open'] = _open_blocked
         ns.update(period=period, find=_h.find, peek=peek,
                   lunar=lambda d: _h.lunar(d, _cal()),
                   solar=lambda nam_am, thang_am, ngay_am, nhuan=False: _h.solar(nam_am, thang_am, ngay_am, nhuan, _cal()),
@@ -307,7 +339,7 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
                 warnings.simplefilter('always')
                 if _cae is not None:
                     warnings.simplefilter('error', _cae)
-                exec(compile(code, '<cell>', 'exec'), ns)
+                _run_cell(code, ns)
             # cảnh báo (chia cho 0 ra NaN, ngày không rõ định dạng ...) đưa vào kết quả cho agent thấy, không in ra console
             seen = []
             for w in wlist:

@@ -24,7 +24,7 @@ from datamate.agent.kernel import KernelPool
 from datamate.agent.prompts import OBSERVATION, QUESTION_BLOCK, SHOP_BLOCK, STYLES, system_prompt
 from datamate.agent.rule_index import RuleIndex
 from datamate.agent.shop_notes import get_notes
-from datamate.agent.verify import coerce, sanity_warnings
+from datamate.agent.verify import code_warnings, coerce, sanity_warnings
 from datamate.core.log import get_logger
 from datamate.core.registry import register_strategy
 from datamate.core.types import AnswerType
@@ -131,6 +131,8 @@ class Agent(Strategy):
         self.use_notes = bool(o.get('shop_notes', True))
         self.use_rules = bool(o.get('rule_hints', True))
         self.unans_factor = float(o.get('unanswerable_factor', 0.6))
+        self.code_lint = bool(o.get('code_lint', True))          # v3.1.2
+        self.rule_hints_k = int(o.get('rule_hints_k', 5))        # v3.1.2
         # ngân sách ngữ cảnh (ký tự; tiếng Việt ~2.5 ký tự / token): giữ tổng < max-model-len 32k token
         self.cards_chars = int(o.get('cards_chars', 12000))
         self.readme_chars = int(o.get('readme_chars', 7000))
@@ -204,7 +206,7 @@ class Agent(Strategy):
                 v = v[:15] + ([f'... (+{len(v) - 15})'] if len(v) > 15 else [])
             ents[k] = v
         exp = ', '.join(u.ctx.expected_types) if u.ctx.expected_types else '(tự xác định)'
-        rules = self.rules().block(u.ctx.q.question) if self.use_rules else ''
+        rules = self.rules().block(u.ctx.q.question, k=self.rule_hints_k) if self.use_rules else ''
         return fill(QUESTION_BLOCK, as_of=u.ctx.q.as_of_date.isoformat(), question=u.ctx.q.question, times=times,
                     entities=json.dumps(ents, ensure_ascii=False, default=str)[:1500] if ents else '(không có)', expected=exp,
                     rules=('\n' + rules) if rules else '', style=STYLES.get(style, style), steps=self.max_steps)
@@ -225,6 +227,7 @@ class Agent(Strategy):
         fq = u.ctx.fq
         t0, tokens, cells, warned, nudges = time.time(), 0, [], False, 0
         seen_code, repeats, last_err = set(), 0, ''
+        outputs: list[str] = []                     # v3.1.2: kết quả từng bước (rút gọn) lưu vào log để chẩn đoán
         status, err, final = 'empty', 'hết lượt chưa trả lời', None
         try:
             for step in range(1, self.max_steps + 1):
@@ -259,7 +262,8 @@ class Agent(Strategy):
                     msgs.append({'role': 'user', 'content': 'Hãy viết đúng một khối ```python``` để chạy (hoặc gọi answer(...)).'})
                     continue
                 norm = _CODE_NORM.sub('', code)
-                if norm in seen_code:
+                # v3.1.2: sau khi bị hỏi lại, gọi lại đúng answer(...) cũ là XÁC NHẬN (prompt yêu cầu vậy), không phải lặp
+                if norm in seen_code and not (warned and 'answer(' in code):
                     repeats += 1
                     if repeats >= 2:
                         status, err = 'error', 'lặp lại code cũ'
@@ -284,6 +288,8 @@ class Agent(Strategy):
                     warns = list(hard)
                     if t not in (None, 'unanswerable'):
                         warns += sanity_warnings(t, v, fq)
+                        if self.code_lint:
+                            warns += code_warnings('\n'.join(cells))
                         if expected and t not in expected:
                             warns.append(f"câu hỏi cần kiểu {', '.join(sorted(expected))} nhưng đáp án là {t}")
                     if warns and not warned and step < self.max_steps:
@@ -299,9 +305,11 @@ class Agent(Strategy):
                     final = (t, v, str(ex.answer.get('reason') or '')[:300], warns)
                     status, err = 'ok', None
                     break
-                body = (ex.stdout or '').strip() or '(không in gì)'
+                body = (ex.stdout or '').strip() or ('(không in gì — dùng print(...) cho thứ cần xem; biểu thức ở dòng '
+                                                     'cuối cũng được hiển thị)')
                 if ex.error:
                     body += f'\nLỖI ({ex.status}):\n{ex.error}'
+                outputs.append(body[:700])
                 left = self.max_steps - step
                 tail = ('\nChỉ còn 1 lượt: lượt sau PHẢI gọi answer(...), hoặc answer("abstain") nếu không chắc.'
                         if left == 1 else '')
@@ -309,7 +317,7 @@ class Agent(Strategy):
                                                              tail=tail)})
         finally:
             await self.kernel().close_session(sid)
-        meta = {'style': style, 'temp': temp, 'steps': len(cells), 'rechecked': warned}
+        meta = {'style': style, 'temp': temp, 'steps': len(cells), 'rechecked': warned, 'outputs': outputs[-10:]}
         program = '\n# ----- bước -----\n'.join(cells)[-12000:]
         if status != 'ok' or final is None:
             return self.cand(i, program=program, status=status if status in ('error', 'empty', 'timeout') else 'error',

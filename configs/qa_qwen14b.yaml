@@ -43,12 +43,14 @@ strategies:
       cell_timeout: 30
       shop_notes: false            # v3.1.1: hỏng JSON ở 11/13 shop với GLM, tốn 1 lượt suy luận mỗi shop
       rule_hints: true
+      rule_hints_k: 6                # v3.1.2: số dòng luật liên quan đặt ngay cạnh câu hỏi
+      code_lint: true                # v3.1.2: code chưa xét trạng thái đơn / so chuỗi đoán -> bắt kiểm tra lại 1 lần
       unanswerable_factor: 1.0
       kernel: {per_shop: 6, max_workers: 24, mem_gb: 12}
       context_tokens: 32768
       chars_per_token: 1.8
-      cards_chars: 8000
-      readme_chars: 7000
+      cards_chars: 5000              # v3.1.2: ngữ cảnh gọn cho model nhỏ
+      readme_chars: 3000
       history_chars: 36000
 decision:
   min_score: 0.8

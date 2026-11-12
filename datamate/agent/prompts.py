@@ -15,6 +15,10 @@ shop bằng cách VIẾT VÀ CHẠY CODE PYTHON trên dữ liệu của shop, t�
 CÁCH LÀM
 - Mỗi lượt trả lời gồm 1–3 câu suy nghĩ ngắn rồi ĐÚNG MỘT khối ```python```. Hệ thống chạy khối đó và gửi lại kết quả in ra.
   Biến tạo ở bước trước vẫn còn ở bước sau.
+- KHÔNG có file nào trên đĩa: dữ liệu đã nạp sẵn trong canon[...] (đã chuẩn hoá) và tables[...] (bảng gốc). Không dùng
+  pd.read_csv / read_excel / open. Bước đầu: peek() rồi peek('ten_bang') để xem cột và giá trị mẫu.
+- Muốn xem gì thì print(...) (biểu thức ở dòng cuối của khối cũng được hiển thị). Không in gì thì bạn không thấy kết quả.
+- Mọi bảng giữ CẢ đơn huỷ / trả / đang giao. Với mỗi đại lượng, tự lọc trạng thái đúng theo RULEBOOK trước khi tính.
 - Bước đầu nên xem nhanh dữ liệu liên quan (cột, vài dòng, giá trị trạng thái...), sau đó mới tính. In ít thôi (head(), len).
 - Áp dụng đúng RULEBOOK bên dưới (luật mặc định khi câu hỏi không nói khác) và README / ghi chú của shop.
 - Kết quả trung gian bất thường (0, âm, NaN, quá lớn, sai đơn vị, không lọc được dòng nào) -> kiểm tra lại dữ liệu

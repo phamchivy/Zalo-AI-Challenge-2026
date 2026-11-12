@@ -95,3 +95,32 @@ def sanity_warnings(t: str, value: Any, question_folded: str) -> list[str]:
         if m and int(m.group(2)) != len(value) and int(m.group(2)) <= 20:
             w.append(f'câu hỏi cần {m.group(2)} phần tử nhưng danh sách có {len(value)}')
     return w
+
+
+# ----------------------------------------------------------------------------- v3.1.2: kiểm tra code (không phải luật)
+_USES_ORDERS = re.compile(r"canon\[\s*['\"](?:orders|lines)['\"]\s*\]|\bfrom\s+(?:orders|lines)\b|\bjoin\s+(?:orders|lines)\b",
+                          re.I)
+_STR_LIT = re.compile(r"(?:==|!=)\s*(['\"])([^'\"\n]{2,60})\1|\.isin\(\s*\[\s*(['\"])([^'\"\n]{2,60})\3"
+                      r"|\b(?:where|and|or|on)\s+[\w.\"]+\s*(?:=|<>|!=)\s*'([^'\n]{2,60})'|\bin\s*\(\s*'([^'\n]{2,60})'", re.I)
+_SAFE_LIT = re.compile(r"^(?:completed|cancelled|returned|shipping|unknown|cash|transfer|ewallet|cod|debt|card|"
+                       r"\d{4}-\d{2}(?:-\d{2})?(?:[ t][\d:]+)?|\d+(?:[.,]\d+)?)$", re.I)
+
+
+def code_warnings(program: str) -> list[str]:
+    """Lỗi hay gặp của model nhỏ, phát hiện từ CODE (không chứa luật nghiệp vụ, chỉ nhắc kiểm tra lại một lần):
+    - dùng bảng đơn / dòng hàng mà không hề xét trạng thái đơn;
+    - so cột chữ với giá trị đoán (chuỗi gõ tay) mà chưa xem giá trị thật (find / unique / value_counts)."""
+    out = []
+    code = '\n'.join(ln for ln in (program or '').splitlines() if not ln.lstrip().startswith('#'))
+    if _USES_ORDERS.search(code) and 'status' not in code:
+        out.append('code dùng bảng đơn / dòng hàng nhưng chưa xét trạng thái đơn (status: completed / cancelled / returned / '
+                   'shipping). Đối chiếu RULEBOOK: đại lượng này tính những đơn nào?')
+    lits = []
+    for m in _STR_LIT.finditer(code):
+        s = next(g for g in (m.group(2), m.group(4), m.group(5), m.group(6)) if g)
+        if not _SAFE_LIT.match(s.strip()):
+            lits.append(s)
+    if lits and not re.search(r"\bfind\(|\.unique\(|value_counts\(|\.str\.contains\(|fold\(", code):
+        out.append(f"code so cột chữ với giá trị gõ tay ({', '.join(repr(x) for x in lits[:3])}) mà chưa xem giá trị thật "
+                   "trong dữ liệu: kiểm tra bằng find(cột, '...') hoặc .unique()")
+    return out

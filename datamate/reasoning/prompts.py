@@ -15,7 +15,8 @@ CANON_DOC = """canon['lines']  — mỗi dòng hàng bán đã chuẩn hoá (dù
   is_service (Phí phục vụ: tính doanh thu, không phải mặt hàng), is_nonproduct (voucher/dùng điểm/phí ship: bỏ),
   order_total/paid/debt/ship_fee/order_discount (cấp đơn, nếu có).
 canon['orders'] — mỗi đơn: order_id, date, time, status, customer_key, customer_display, payment_n, channel_f, revenue,
-  n_lines, order_total, paid, debt, ship_fee ... (gồm cả đơn không có dòng hàng)
+  n_lines, order_total, paid, debt, ship_fee ... (gồm cả đơn không có dòng hàng). revenue = tổng amount các dòng của đơn,
+  CHƯA lọc trạng thái (đơn huỷ / trả vẫn có revenue); order_total = số khách phải trả cả đơn (nếu shop ghi).
 canon['products'] — product_key, product_code, product_name, category, base_unit, cost, price, rx, ingredient
 canon['units'] — product_key, unit_f, factor (số đơn vị cơ bản trong 1 đơn vị), base_unit
 canon['payments'] — order_id, pay_date, amount, method (mỗi lần khách trả tiền)
