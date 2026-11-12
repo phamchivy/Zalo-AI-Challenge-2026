@@ -143,7 +143,7 @@ def cmd_build(args):
     data = Path(args.split) / 'data'
     biz = args.biz or sorted(p.name for p in data.iterdir() if p.is_dir())
     t0 = time.time()
-    cats = build_all(data, biz, cfg.cache_dir, cfg.workers)
+    cats = build_all(data, biz, cfg.cache_dir, cfg.workers, cfg.mapping_llm.model_dump() if cfg.mapping_llm.enabled else None)
     for b, c in cats.items():
         s = c.summary()
         print(f"{b}: lines={s['lines']} orders={s['orders']} caps={s['caps']} range={s['date_min']}..{s['date_max']} notes={s['notes'][:4]}")
@@ -162,7 +162,8 @@ def cmd_invariants(args):
     from datamate.data.invariants import render_markdown, run_split
     cfg = _cfg(args)
     t0 = time.time()
-    report, nq = run_split(args.split, cfg.cache_dir, args.biz, cfg.workers)
+    report, nq = run_split(args.split, cfg.cache_dir, args.biz, cfg.workers,
+                           llm_cfg=cfg.mapping_llm.model_dump() if cfg.mapping_llm.enabled else None)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     name = Path(args.split).name or 'split'

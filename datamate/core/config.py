@@ -24,6 +24,27 @@ class LLMConfig(BaseModel):
     wait_ready_sec: int = 900                   # chờ vLLM load model trước khi chạy
 
 
+class MappingLLMConfig(BaseModel):
+    """v3.0.0 — LLM cho bước dựng dữ liệu (gán nhãn trạng thái/thanh toán, gán vai trò cột còn thiếu).
+    Đổi model chỉ cần đổi base_url / model / api_key_env / json_mode (xem configs/llm_map_*.yaml).
+    Biến môi trường ghi đè: DM_LLM_URL, DM_LLM_MODEL, DM_LLM_KEY (khoá API không bao giờ ghi trong file)."""
+    enabled: bool = False
+    base_url: str = 'http://127.0.0.1:8000/v1'
+    model: str = 'qwen3-14b'
+    api_key_env: str = 'DM_LLM_KEY'
+    json_mode: str = 'auto'                     # schema | object | prompt | auto
+    disable_thinking: bool = True               # Qwen3: tắt thinking; model khác bỏ qua tham số này
+    temperature: float = 0.0
+    seed: Optional[int] = 42
+    max_tokens: int = 4096
+    timeout_sec: float = 120.0
+    retries: int = 3
+    cache: bool = True
+    enums: bool = True                          # gán nhãn trạng thái / thanh toán mà từ điển không hiểu
+    roles: bool = True                          # gán vai trò cột còn thiếu (chọn bằng invariants)
+    min_conf: float = 0.8                       # độ tin cậy tối thiểu để nhận một vai trò do LLM gán
+
+
 class StrategyConfig(BaseModel):
     name: str
     enabled: bool = True
@@ -62,6 +83,7 @@ class Config(BaseModel):
     sandbox_timeout_sec: float = 30.0
     max_repair_rounds: int = 1
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    mapping_llm: MappingLLMConfig = Field(default_factory=MappingLLMConfig)
     strategies: list[StrategyConfig] = Field(default_factory=lambda: [
         StrategyConfig(name='guard', weight=1.0),
         StrategyConfig(name='rule_plan', weight=1.0),
@@ -88,6 +110,9 @@ def load_config(path: Optional[str] = None, overrides: Optional[dict] = None) ->
         data.setdefault('llm', {})['base_urls'] = os.environ['DATAMATE_LLM_URLS'].split(',')
     if os.environ.get('DATAMATE_LLM_MODEL'):
         data.setdefault('llm', {})['model'] = os.environ['DATAMATE_LLM_MODEL']
+    for env, k in (('DM_LLM_URL', 'base_url'), ('DM_LLM_MODEL', 'model')):
+        if os.environ.get(env):
+            data.setdefault('mapping_llm', {})[k] = os.environ[env]
     if os.environ.get('DATAMATE_NO_LLM') == '1':
         data.setdefault('llm', {})['enabled'] = False
     return Config(**data)

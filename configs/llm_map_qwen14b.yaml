@@ -1,0 +1,30 @@
+# v3.0.0 — cấu hình NỘP BÀI: Qwen3-14B chạy vLLM trong container (<= 15B), ép JSON schema bằng guided decoding.
+# Đổi sang model khác: chỉ sửa base_url / model / json_mode.
+name: llm_map_qwen14b
+cache_dir: /tmp/datamate_cache
+workers: 4
+question_concurrency: 16
+llm: {enabled: false}
+mapping_llm:
+  enabled: true
+  base_url: http://127.0.0.1:8000/v1
+  model: qwen3-14b
+  api_key_env: DM_LLM_KEY
+  json_mode: schema
+  disable_thinking: true
+  max_tokens: 4096
+  timeout_sec: 120
+  retries: 3
+  min_conf: 0.8
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
+decision:
+  min_score: 0.8
+  min_share: 0.6
+  unanswerable_min_score: 0.9
+  calibration_path: configs/calibration.yaml
+  unexplained_factor: [1.0, 0.5, 0.0]
+  health_factor: {recon_mismatch: 0.5, header_rows: 1.0, duplicate_sources: 1.0}
+  recon_mismatch_max: 0.2
+  type_contract: true

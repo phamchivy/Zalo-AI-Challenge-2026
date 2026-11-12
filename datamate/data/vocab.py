@@ -21,10 +21,22 @@ STATUS = {
 _STATUS_MAP = {v: k for k, vs in STATUS.items() for v in vs}
 
 
+# v3.0.0: nhãn do LLM gán theo giá trị thật của shop đang dựng (chỉ chứa nhãn từ điển KHÔNG hiểu được).
+# Mỗi shop dựng trong một tiến trình riêng; catalog đặt/xoá quanh bước dựng canonical.
+ENUM_OVERRIDES: dict[str, dict[str, str]] = {'status': {}, 'payment': {}}
+
+
+def set_enum_overrides(d: Optional[dict]) -> None:
+    ENUM_OVERRIDES['status'] = dict((d or {}).get('status') or {})
+    ENUM_OVERRIDES['payment'] = dict((d or {}).get('payment') or {})
+
+
 def norm_status(v: Any) -> Optional[str]:
     f = fold(v)
     if not f:
         return None
+    if f in ENUM_OVERRIDES['status']:
+        return ENUM_OVERRIDES['status'][f]
     if f in _STATUS_MAP:
         return _STATUS_MAP[f]
     if re.search(r'\bhuy\b|cancel', f):
@@ -87,6 +99,8 @@ def norm_payment(v: Any) -> Optional[str]:
     f = fold(v)
     if not f:
         return None
+    if f in ENUM_OVERRIDES['payment']:
+        return ENUM_OVERRIDES['payment'][f]
     for k, rx in PAYMENT.items():
         if re.search(rx, f):
             return k

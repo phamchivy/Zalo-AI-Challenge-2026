@@ -403,7 +403,7 @@ def render_markdown(split: str, report: dict, nq: dict) -> str:
 
 
 def run_split(split_dir: str, cache_dir: str, biz: Optional[list[str]] = None, workers: int = 4,
-              build: Optional[Callable] = None) -> tuple[dict, dict]:
+              build: Optional[Callable] = None, llm_cfg: Optional[dict] = None) -> tuple[dict, dict]:
     import json
     from pathlib import Path
     from datamate.data.catalog import build_all
@@ -416,7 +416,7 @@ def run_split(split_dir: str, cache_dir: str, biz: Optional[list[str]] = None, w
             if line.strip():
                 b = json.loads(line).get('business_id')
                 nq[b] = nq.get(b, 0) + 1
-    cats = (build or build_all)(data, ids, cache_dir, workers)
+    cats = (build or build_all)(data, ids, cache_dir, workers, llm_cfg)
     report = {}
     for b in ids:
         c = cats.get(b)

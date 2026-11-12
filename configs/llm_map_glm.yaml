@@ -1,0 +1,31 @@
+# v3.0.0 — tầng A + LLM ở bước dựng dữ liệu, dùng API NỘI BỘ (GLM) để PHÁT TRIỂN. Chỉ chạy trên dữ liệu train.
+# Khoá API: export DM_LLM_KEY=...  (không ghi vào file). Có thể ghi đè URL/model bằng DM_LLM_URL / DM_LLM_MODEL.
+# Endpoint này không ép được JSON schema -> json_mode: prompt (schema trong prompt, parse + kiểm + thử lại).
+name: llm_map_glm
+cache_dir: /tmp/datamate_cache
+workers: 4
+question_concurrency: 16
+llm: {enabled: false}
+mapping_llm:
+  enabled: true
+  base_url: http://172.20.1.114:30008/model-as-a-service/v1
+  model: glm-4.7-cc
+  api_key_env: DM_LLM_KEY
+  json_mode: prompt
+  disable_thinking: false      # GLM là model suy luận: để max_tokens đủ lớn, content mới không rỗng
+  max_tokens: 8192
+  timeout_sec: 300
+  retries: 3
+  min_conf: 0.8
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
+decision:
+  min_score: 0.8
+  min_share: 0.6
+  unanswerable_min_score: 0.9
+  calibration_path: configs/calibration.yaml
+  unexplained_factor: [1.0, 0.5, 0.0]
+  health_factor: {recon_mismatch: 0.5, header_rows: 1.0, duplicate_sources: 1.0}
+  recon_mismatch_max: 0.2
+  type_contract: true

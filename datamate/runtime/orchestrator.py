@@ -89,7 +89,8 @@ class Orchestrator:
         biz = sorted({q.business_id for q in qs})
         log.info('%d câu, %d doanh nghiệp', len(qs), len(biz))
         loop = asyncio.get_running_loop()
-        cats = await loop.run_in_executor(None, build_all, self.split / 'data', biz, self.cfg.cache_dir, self.cfg.workers)
+        cats = await loop.run_in_executor(None, build_all, self.split / 'data', biz, self.cfg.cache_dir, self.cfg.workers,
+                                          self.cfg.mapping_llm.model_dump() if self.cfg.mapping_llm.enabled else None)
         ixs = {b: EntityIndex.from_catalog(c) for b, c in cats.items()}
         log.info('catalog xong sau %.1fs', time.time() - t_start)
         llm = await self._make_llm()

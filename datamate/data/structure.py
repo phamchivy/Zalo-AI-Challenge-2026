@@ -286,24 +286,36 @@ def _infer(raw, profiles, bm: BusinessMapping, rep: StructureReport) -> None:
                 if 'goods_total' not in om.roles and 'amount' in tm.roles:
                     _goods_total(raw, profiles, om, tm, rep)
     # ---- 3. độ phủ: bảng con của đơn còn chưa hiểu được
-    for om in orders:
+    rep.uncovered_children = uncovered_children(raw, profiles, bm, vals)
+    for t, rs in rep.added.items():
+        rep.notes.append(f'structure: {t} += {rs}')
+    for t, (a, b) in rep.retyped.items():
+        rep.notes.append(f'structure: {t} {a} -> {b}')
+
+
+def uncovered_children(raw, profiles, bm: BusinessMapping, vals: Optional['_Vals'] = None) -> list[str]:
+    """Bảng con của bảng đơn (khoá ⊂ mã đơn, nhiều dòng/mã) mà chưa được hiểu (loại chung chung, hoặc 'dòng hàng'
+    không có SL/thành tiền). Dùng lại sau khi LLM bổ sung vai trò để chấm lại độ phủ."""
+    vals = vals or _Vals(raw)
+    names = [n for n in bm.tables if n in raw and n in profiles]
+    out: list[str] = []
+    for om in bm.of_type('sales_orders'):
+        if om.roles.get('order_id') not in raw[om.table].df.columns:
+            continue
         ov = vals.get(om.table, om.roles['order_id'])
         for t in names:
             tm = bm.tables[t]
             broken_lines = tm.ttype == 'sales_lines' and not ({'qty', 'amount'} & set(tm.roles))
-            if t == om.table or not (tm.ttype in GENERIC or broken_lines):
+            if t == om.table or t in out or not (tm.ttype in GENERIC or broken_lines):
                 continue
             ref = tm.roles.get('order_id')
             cands = [ref] if ref else _key_cols(t, raw, vals, profiles)
             for c in cands:
                 cv = vals.get(t, c)
                 if len(cv) >= 5 and _overlap(cv, ov) >= KEY_MIN_OVERLAP and len(raw[t].df) > 1.05 * len(cv):
-                    rep.uncovered_children.append(t)
+                    out.append(t)
                     break
-    for t, rs in rep.added.items():
-        rep.notes.append(f'structure: {t} += {rs}')
-    for t, (a, b) in rep.retyped.items():
-        rep.notes.append(f'structure: {t} {a} -> {b}')
+    return out
 
 
 def _goods_total(raw, profiles, om: TableMapping, lm: TableMapping, rep: StructureReport) -> None:
