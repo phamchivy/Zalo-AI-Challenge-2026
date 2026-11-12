@@ -30,6 +30,20 @@ class LLMResult:
     error: Optional[str] = None
 
 
+OPTIONAL_KEYS = ('chat_template_kwargs', 'seed', 'stop', 'reasoning_effort', 'response_format')
+
+
+def _backoff(attempt: int, retry_after: Optional[str]) -> float:
+    """v3.1.1: chờ trước khi thử lại — theo Retry-After nếu có, không thì 2, 4, 8... giây (tối đa 60) + nhiễu."""
+    import random
+    try:
+        if retry_after:
+            return min(120.0, float(retry_after))
+    except ValueError:
+        pass
+    return min(60.0, 2.0 ** attempt) * (0.75 + 0.5 * random.random())
+
+
 class LLMClient:
     def __init__(self, cfg: LLMConfig):
         self.cfg = cfg
@@ -77,11 +91,14 @@ class LLMClient:
             body['chat_template_kwargs'] = {'enable_thinking': False}
         if json_schema is not None and self.cfg.guided_json:
             body['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'out', 'schema': json_schema}}
+        body.update(self.cfg.extra_body or {})          # v3.1.1: vd Gemini {reasoning_effort: low}
         t0 = time.time()
         last_err = None
+        empties = 0
         async with self._sem:
             c = await self._get()
-            for attempt in range(3):
+            attempt = 0
+            while attempt < max(1, self.cfg.retries):
                 url = next(self._rr).rstrip('/') + '/chat/completions'
                 try:
                     r = await c.post(url, json=body, headers={'Authorization': f'Bearer {self.key}'})
@@ -89,21 +106,35 @@ class LLMClient:
                         last_err = f'HTTP {r.status_code}: {r.text[:300]}'
                         if r.status_code == 400 and 'context length' in r.text:
                             break               # vượt ngữ cảnh: gửi lại y nguyên vô ích, để agent rút gọn rồi gửi lại
-                        # server không hỗ trợ response_format -> bỏ ràng buộc, parse JSON thủ công
-                        if r.status_code == 400 and 'response_format' in body:
-                            body.pop('response_format', None)
-                        await asyncio.sleep(0.5 * (attempt + 1))
+                        if r.status_code in (400, 422):
+                            # v3.1.1: tham số tuỳ chọn mà nhà cung cấp không nhận -> bỏ rồi gửi lại (không tính lượt)
+                            bad = [k for k in OPTIONAL_KEYS if k in body and k in r.text]
+                            if not bad and 'response_format' in body:
+                                bad = ['response_format']     # không nhận json_schema -> parse JSON thủ công
+                            if bad:
+                                for k in bad:
+                                    body.pop(k, None)
+                                continue
+                            break                   # lỗi yêu cầu khác: gửi lại y nguyên vô ích
+                        attempt += 1
+                        await asyncio.sleep(_backoff(attempt, r.headers.get('retry-after')))
                         continue
                     data = r.json()
-                    text = data['choices'][0]['message'].get('content') or ''
+                    ch = data['choices'][0]
+                    text = (ch.get('message') or {}).get('content') or ''
                     usage = data.get('usage') or {}
                     ntok = int(usage.get('total_tokens', 0))
                     self.calls += 1
                     self.tokens += ntok
+                    if not text.strip() and empties < self.cfg.empty_retries:
+                        empties += 1                # v3.1.1: rỗng (suy luận ăn hết max_tokens / lỗi tạm) -> gọi lại
+                        last_err = f"rỗng (finish_reason={ch.get('finish_reason')})"
+                        continue
                     return LLMResult(text=text, tokens=ntok, elapsed=time.time() - t0)
                 except Exception as e:  # noqa: BLE001
                     last_err = repr(e)[:300]
-                    await asyncio.sleep(0.5 * (attempt + 1))
+                    attempt += 1
+                    await asyncio.sleep(_backoff(attempt, None))
         log.warning('llm failed: %s', last_err)
         return LLMResult(text='', elapsed=time.time() - t0, error=last_err)
 

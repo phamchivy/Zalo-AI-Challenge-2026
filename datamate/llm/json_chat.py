@@ -85,6 +85,20 @@ class JSONChat:
         h = hashlib.sha1(json.dumps([self.model, messages, schema], ensure_ascii=False, sort_keys=True).encode())
         return h.hexdigest()[:24]
 
+    def _send(self, body: dict):
+        """v3.1.1: 429 / 5xx -> chờ tăng dần (theo Retry-After) rồi gửi lại."""
+        import time as _time
+
+        from datamate.runtime.llm_client import _backoff
+        r = None
+        for attempt in range(1, 7):
+            r = httpx.post(self.base + '/chat/completions', headers=self.headers, json=body,
+                           timeout=float(self.cfg.get('timeout_sec', 120)))
+            if r.status_code != 429 and r.status_code < 500:
+                return r
+            _time.sleep(_backoff(attempt, r.headers.get('retry-after')))
+        return r
+
     def _post(self, messages: list[dict], schema: Optional[dict]) -> str:
         body: dict[str, Any] = {'model': self.model, 'messages': messages,
                                 'temperature': self.cfg.get('temperature', 0.0),
@@ -97,13 +111,12 @@ class JSONChat:
             body['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'out', 'schema': schema}}
         elif self.mode == 'object':
             body['response_format'] = {'type': 'json_object'}
-        r = httpx.post(self.base + '/chat/completions', headers=self.headers, json=body,
-                       timeout=float(self.cfg.get('timeout_sec', 120)))
+        body.update(self.cfg.get('extra_body') or {})          # v3.1.1
+        r = self._send(body)
         if r.status_code in (400, 422) and self.mode == 'auto' and 'response_format' in body:
             self.mode = 'prompt'                       # endpoint không nhận json_schema -> dùng prompt từ nay
             body.pop('response_format', None)
-            r = httpx.post(self.base + '/chat/completions', headers=self.headers, json=body,
-                           timeout=float(self.cfg.get('timeout_sec', 120)))
+            r = self._send(body)
         r.raise_for_status()
         self.calls += 1
         msg = r.json()['choices'][0]['message']

@@ -41,7 +41,7 @@ strategies:
       max_steps: 8
       max_tokens_step: 1500
       cell_timeout: 30
-      shop_notes: true
+      shop_notes: false            # v3.1.1: hỏng JSON ở 11/13 shop với GLM, tốn 1 lượt suy luận mỗi shop
       rule_hints: true
       unanswerable_factor: 1.0
       kernel: {per_shop: 6, max_workers: 24, mem_gb: 12}

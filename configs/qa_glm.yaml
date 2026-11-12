@@ -5,7 +5,7 @@
 name: qa_glm
 cache_dir: /tmp/datamate_cache
 workers: 4
-question_concurrency: 8          # câu chạy LLM đồng thời (mỗi câu 3 lời giải -> ~24 yêu cầu song song)
+question_concurrency: 12         # v3.1.1: nút thắt là độ trễ API, không phải RAM -> chạy nhiều câu song song
 time_budget_sec: 19800
 sandbox_timeout_sec: 30
 llm:
@@ -18,7 +18,8 @@ llm:
   seed: 42
   max_tokens: 8192
   timeout_sec: 300
-  max_concurrency: 24
+  max_concurrency: 36
+  retries: 5
   guided_json: false             # endpoint bỏ qua json_schema
   disable_thinking: false        # GLM là model suy luận: cần max_tokens lớn để phần trả lời không rỗng
 mapping_llm:
@@ -44,10 +45,10 @@ strategies:
       max_steps: 8
       max_tokens_step: 8192
       cell_timeout: 30
-      shop_notes: true
+      shop_notes: false            # v3.1.1: hỏng JSON ở 11/13 shop với GLM, tốn 1 lượt suy luận mỗi shop
       rule_hints: true
       unanswerable_factor: 1.0
-      kernel: {per_shop: 6, max_workers: 24, mem_gb: 12}
+      kernel: {per_shop: 2, max_workers: 4, mem_gb: 4}   # v3.1.1: vừa máy 11-16 GB (nhiều phiên dùng chung worker)
       context_tokens: 65536
       chars_per_token: 2.0
       cards_chars: 14000

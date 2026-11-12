@@ -1,0 +1,76 @@
+# v3.1.1 — như qa_glm.yaml nhưng LLM là Gemini qua endpoint tương thích OpenAI (chỉ dùng để PHÁT TRIỂN trên train).
+# Cần API key của Google AI Studio có bật thanh toán (gói Gemini dành cho người dùng app không phải API key).
+#   export GEMINI_API_KEY=...        (không ghi khoá vào file)
+# Đổi model: sửa llm.model / mapping_llm.model (xem danh sách: curl -H "Authorization: Bearer $GEMINI_API_KEY" \
+#   https://generativelanguage.googleapis.com/v1beta/openai/models).
+name: qa_gemini
+cache_dir: /tmp/datamate_cache
+workers: 4
+question_concurrency: 16
+time_budget_sec: 19800
+sandbox_timeout_sec: 30
+llm:
+  enabled: true
+  base_urls: ["https://generativelanguage.googleapis.com/v1beta/openai"]
+  model: gemini-2.5-flash
+  api_key_env: GEMINI_API_KEY
+  health_check: false
+  temperature: 0.3
+  seed: 42                       # nếu endpoint không nhận, client tự bỏ tham số này
+  max_tokens: 8192
+  timeout_sec: 300
+  max_concurrency: 48
+  retries: 6                     # 429: chờ theo Retry-After / tăng dần
+  guided_json: false
+  disable_thinking: false        # tham số tắt suy nghĩ kiểu Qwen không dùng cho Gemini
+  extra_body: {reasoning_effort: low}   # suy nghĩ ít: nhanh, rẻ; muốn chắc hơn thì 'medium'
+mapping_llm:
+  enabled: true
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai
+  model: gemini-2.5-flash
+  api_key_env: GEMINI_API_KEY
+  json_mode: prompt
+  disable_thinking: false
+  max_tokens: 8192
+  timeout_sec: 300
+  retries: 3
+  min_conf: 0.8
+  extra_body: {reasoning_effort: low}
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
+  - name: agent
+    weight: 1.0
+    samples: 3
+    options:
+      styles: [canon_pandas, canon_check, sql]
+      temperatures: [0.3, 0.6, 0.8]
+      max_steps: 8
+      max_tokens_step: 8192
+      cell_timeout: 30
+      shop_notes: false            # v3.1.1: hỏng JSON ở 11/13 shop với GLM, tốn 1 lượt suy luận mỗi shop
+      rule_hints: true
+      unanswerable_factor: 1.0
+      kernel: {per_shop: 2, max_workers: 4, mem_gb: 4}   # v3.1.1: vừa máy 11-16 GB (nhiều phiên dùng chung worker)
+      context_tokens: 200000
+      chars_per_token: 2.0
+      cards_chars: 16000
+      readme_chars: 12000
+      history_chars: 150000
+decision:
+  min_score: 0.8
+  min_share: 0.6
+  unanswerable_min_score: 0.9
+  calibration_path: configs/calibration.yaml
+  unexplained_factor: [1.0, 0.5, 0.0]
+  health_factor: {recon_mismatch: 0.5, header_rows: 1.0, duplicate_sources: 1.0}
+  recon_mismatch_max: 0.2
+  type_contract: true
+  # v3.1.0
+  llm_only_abstained: true       # đáp án tầng A giữ nguyên; LLM chỉ chạy cho câu tầng A bỏ trống
+  llm_keep_tier_a: true
+  llm_answer_types: null         # LLM được đưa mọi kiểu đáp án (đếm phiếu là chốt chặn)
+  llm_reject_zero: true          # đáp án 0 / 0% / ±100% chỉ từ LLM -> bỏ trống (thận trọng)
+  llm_vote: consensus
+  min_votes: 2
+  unanswerable_min_votes: 3

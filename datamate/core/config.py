@@ -22,6 +22,9 @@ class LLMConfig(BaseModel):
     timeout_sec: float = 180.0
     max_concurrency: int = 48
     guided_json: bool = True                    # vLLM structured output cho plan
+    extra_body: dict = Field(default_factory=dict)  # v3.1.1: tham số riêng của nhà cung cấp, vd {reasoning_effort: low}
+    retries: int = 3                            # v3.1.1: số lần thử lại (429 / 5xx / mạng: chờ tăng dần, theo Retry-After)
+    empty_retries: int = 1                      # v3.1.1: trả về rỗng (vd suy luận ăn hết max_tokens) -> gọi lại
     disable_thinking: bool = True               # Qwen3.x: tắt thinking cho nhanh/ổn định
     wait_ready_sec: int = 900                   # chờ vLLM load model trước khi chạy
 
@@ -41,6 +44,7 @@ class MappingLLMConfig(BaseModel):
     max_tokens: int = 4096
     timeout_sec: float = 120.0
     retries: int = 3
+    extra_body: dict = Field(default_factory=dict)  # v3.1.1: tham số riêng của nhà cung cấp
     cache: bool = True
     enums: bool = True                          # gán nhãn trạng thái / thanh toán mà từ điển không hiểu
     roles: bool = True                          # gán vai trò cột còn thiếu (chọn bằng invariants)

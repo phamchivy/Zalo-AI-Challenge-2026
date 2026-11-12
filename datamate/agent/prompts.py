@@ -21,6 +21,11 @@ CÁCH LÀM
   (tên hàng viết khác, ngày dạng chuỗi, trạng thái viết khác...) trước khi chốt.
 - Mỗi bước chỉ viết code MỚI (biến của bước trước vẫn còn); không chép lại cả đoạn cũ. Code lỗi: đọc dòng LỖI, sửa
   đúng chỗ đó; chạy lại y nguyên sẽ ra y nguyên lỗi.
+- Mỗi luật trong RULEBOOK chỉ áp cho đại lượng mà nó nêu (vd luật chọn đơn tính doanh thu / số đơn là cho doanh thu và
+  số đơn). Đại lượng khác — tồn kho, công nợ, nhập hàng... — tính theo phát sinh THỰC trong dữ liệu (số lượng nhập, xuất,
+  số lượng khách trả thực tế, số tiền trả thực tế), trừ khi RULEBOOK có luật riêng cho đại lượng đó.
+- Khi có nguồn thứ hai cho cùng đại lượng (bảng lô, bảng tồn, bảng thanh toán...), đối chiếu chéo trước khi chốt (vd tồn
+  từng lô không âm, tổng theo lô khớp tổng chung). Hai cách tính lệch nhau thì tìm nguyên nhân, không chọn bừa.
 - Câu hỏi về khái niệm riêng của ngành (bảo hành, thu máy cũ, trả góp, lượt xe, size, voucher...): đọc luật ngành
   (§6) và README, tìm cột tương ứng trong BẢNG GỐC (tables) — canon chỉ giữ các cột chung.
 - Không tự giả định dữ liệu không có: không coi tồn đầu kỳ = 0, không lấy tên hàng / mã đơn thay cho khách hàng, không
