@@ -21,6 +21,8 @@ CÁCH LÀM
   (tên hàng viết khác, ngày dạng chuỗi, trạng thái viết khác...) trước khi chốt.
 - Mỗi bước chỉ viết code MỚI (biến của bước trước vẫn còn); không chép lại cả đoạn cũ. Code lỗi: đọc dòng LỖI, sửa
   đúng chỗ đó; chạy lại y nguyên sẽ ra y nguyên lỗi.
+- Câu hỏi về khái niệm riêng của ngành (bảo hành, thu máy cũ, trả góp, lượt xe, size, voucher...): đọc luật ngành
+  (§6) và README, tìm cột tương ứng trong BẢNG GỐC (tables) — canon chỉ giữ các cột chung.
 - Không tự giả định dữ liệu không có: không coi tồn đầu kỳ = 0, không lấy tên hàng / mã đơn thay cho khách hàng, không
   bịa tiêu chí cho câu hỏi cảm tính ("được quý mến nhất"...). Thiếu thông tin -> answer('unanswerable', None, lý do).
 - Khi chắc chắn, gọi answer(type, value, reason) trong code. Sau khi gọi answer là xong.
@@ -44,6 +46,18 @@ meta  : as_of_date (hôm nay của câu hỏi), data_min, data_max, business_id
 sql(query) -> DataFrame: DuckDB trên các bảng canon (lines, orders, products, ...) và bảng gốc (tên đổi ký tự đặc biệt thành _)
 fold(s) (bỏ dấu + chữ thường, để so khớp tên), to_num(s), parse_date(s), month_end(y, m), round_money(x)
 answer(type, value, reason)
+Hàm hỗ trợ (không bắt buộc; chúng không chứa luật nghiệp vụ, luật luôn lấy từ RULEBOOK):
+  peek()            liệt kê mọi bảng canon / tables với số dòng và tên cột; peek('ten_bang') mô tả từng cột (kiểu,
+                    % trống, số giá trị khác nhau, giá trị mẫu). Nên gọi ở bước đầu.
+  period('tháng trước')   -> [{'start', 'end', 'expr', 'label', 'granularity'}] (pd.Timestamp, gồm cả hai đầu), tính
+                    theo hôm nay của câu hỏi; đọc được 'T4/26', 'quý 2 năm nay', '7 ngày gần nhất', 'từ 3/5 đến 10/5'...
+                    Có thể trả thêm khoảng phụ hoặc [] nếu không đọc được: xem 'expr' của từng khoảng, tự đối chiếu
+                    với câu hỏi và RULEBOOK §2.
+  find(values, 'cụm chữ trong câu', k=5)  -> giá trị trong dữ liệu khớp nhất (không dấu, viết tắt, sai nhẹ), tốt nhất
+                    trước; vd find(canon['products']['product_name'], 'sữa ông thọ'). find(..., scores=True) kèm điểm 0..1.
+                    Luôn dùng để nối tên hàng / nhóm / đơn vị / kênh / khách trong câu với dữ liệu, không so chuỗi trực tiếp.
+  lunar(ngay) -> ngày âm, thứ, tên lễ; solar(nam_am, thang_am, ngay_am) -> ngày dương; holidays('Tết') -> các ngày lễ
+                    (theo calendar.csv). Khoảng Tết, mùa lễ... định nghĩa theo RULEBOOK.
 Không đọc / ghi file, không gọi mạng. Mỗi khối code chạy tối đa {timeout} giây.
 pandas 3 (Copy-on-Write): không dùng inplace=True trên cột; luôn gán lại, vd df[col] = df[col].fillna(0).
 Cột ngày của canon (date, pay_date, p_date, ...) là datetime64: lọc bằng chuỗi, vd L[(L['date'] >= '2026-07-01') &
@@ -72,7 +86,7 @@ QUESTION_BLOCK = """# CÂU HỎI
 Hôm nay (as_of_date) = {as_of}
 Câu hỏi: {question}
 
-Gợi ý từ bộ phân tích câu (thường đúng, nhưng tự kiểm tra):
+Gợi ý từ bộ phân tích câu tự động (có thể THIẾU hoặc SAI với cách hỏi mới; câu hỏi gốc và RULEBOOK là căn cứ):
 - Khoảng thời gian: {times}
 - Thực thể đã khớp trong dữ liệu: {entities}
 - Kiểu đáp án mong đợi: {expected}

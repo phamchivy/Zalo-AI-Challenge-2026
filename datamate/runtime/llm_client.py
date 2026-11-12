@@ -38,6 +38,9 @@ class LLMClient:
         self._client: Optional[httpx.AsyncClient] = None
         self.calls = 0
         self.tokens = 0
+        # v3.1.0: khoá đọc từ biến môi trường (cfg.api_key_env) nếu có, không ghi trong config
+        import os
+        self.key = (os.environ.get(cfg.api_key_env) if cfg.api_key_env else None) or cfg.api_key
 
     async def _get(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -52,7 +55,7 @@ class LLMClient:
         c = await self._get()
         for u in self.cfg.base_urls:
             try:
-                r = await c.get(u.rstrip('/') + '/models', headers={'Authorization': f'Bearer {self.cfg.api_key}'})
+                r = await c.get(u.rstrip('/') + '/models', headers={'Authorization': f'Bearer {self.key}'})
                 if r.status_code != 200:
                     return False
             except Exception:  # noqa: BLE001
@@ -81,7 +84,7 @@ class LLMClient:
             for attempt in range(3):
                 url = next(self._rr).rstrip('/') + '/chat/completions'
                 try:
-                    r = await c.post(url, json=body, headers={'Authorization': f'Bearer {self.cfg.api_key}'})
+                    r = await c.post(url, json=body, headers={'Authorization': f'Bearer {self.key}'})
                     if r.status_code != 200:
                         last_err = f'HTTP {r.status_code}: {r.text[:300]}'
                         if r.status_code == 400 and 'context length' in r.text:

@@ -19,6 +19,7 @@ class Env:
     shop_blocks: dict = field(default_factory=dict)  # business_id -> prompt block (cache)
     deadline: float = float('inf')           # time.time() quá mốc -> chỉ chạy strategy không dùng LLM
     kernel: Any = None                       # v2: KernelPool (agent tạo khi cần, orchestrator đóng cuối lần chạy)
+    split_dir: str = ''                      # v3.1.0: thư mục split (calendar.csv cho hàm hỗ trợ của agent)
 
     def llm_allowed(self) -> bool:
         return self.llm is not None and self.cfg.llm.enabled and time.time() < self.deadline

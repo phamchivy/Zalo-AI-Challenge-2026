@@ -14,6 +14,8 @@ class LLMConfig(BaseModel):
     base_urls: list[str] = Field(default_factory=lambda: ['http://127.0.0.1:8000/v1'])   # >1 url = nhiều replica
     model: str = 'qwen'
     api_key: str = 'EMPTY'
+    api_key_env: Optional[str] = None           # v3.1.0: tên biến môi trường chứa khoá API (khoá không ghi trong file)
+    health_check: bool = True                   # v3.1.0: API ngoài/nội bộ có thể không có /models -> false
     temperature: float = 0.0
     seed: int = 42
     max_tokens: int = 2048
@@ -72,6 +74,11 @@ class DecisionConfig(BaseModel):
     llm_reject_zero: bool = True                # đáp án 0 / 0% / ±100% chỉ từ LLM -> bỏ trống
     # v2.5.0 — invariants báo đỏ -> bỏ trống câu phụ thuộc phần dữ liệu đó; đáp án vô lý -> bỏ trống
     data_guard: bool = True
+    # v3.1.0 — tầng LLM cho câu tầng A bỏ trống
+    llm_only_abstained: bool = False            # chỉ gọi LLM cho câu tầng A bỏ trống (đáp án tầng A giữ nguyên, không tốn lượt)
+    llm_vote: str = 'weighted'                  # weighted (voter cũ) | consensus (đếm phiếu, xem decision/consensus.py)
+    min_votes: int = 2                          # consensus: số phiếu tối thiểu cho cùng một đáp án
+    unanswerable_min_votes: int = 3             # consensus: 'không trả lời được' cần chắc hơn
 
 
 class Config(BaseModel):

@@ -1,0 +1,69 @@
+# v3.1.0 — cấu hình NỘP BÀI: giống qa_glm.yaml nhưng LLM là Qwen3-14B chạy vLLM trong container (<= 15B).
+# vLLM: --max-model-len 32768. Đổi model khác: chỉ sửa khối llm / mapping_llm.
+name: qa_qwen14b
+cache_dir: /tmp/datamate_cache
+workers: 4
+question_concurrency: 16
+time_budget_sec: 19800
+sandbox_timeout_sec: 30
+llm:
+  enabled: true
+  base_urls: ["http://127.0.0.1:8000/v1"]
+  model: qwen3-14b
+  health_check: true
+  wait_ready_sec: 1500
+  temperature: 0.3
+  seed: 42
+  max_tokens: 1500
+  timeout_sec: 300
+  max_concurrency: 96
+  guided_json: true
+  disable_thinking: true
+mapping_llm:
+  enabled: true
+  base_url: http://127.0.0.1:8000/v1
+  model: qwen3-14b
+  json_mode: schema
+  disable_thinking: true
+  max_tokens: 4096
+  timeout_sec: 120
+  retries: 3
+  min_conf: 0.8
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
+  - name: agent
+    weight: 1.0
+    samples: 3
+    options:
+      styles: [canon_pandas, canon_check, sql]
+      temperatures: [0.3, 0.6, 0.8]
+      max_steps: 8
+      max_tokens_step: 1500
+      cell_timeout: 30
+      shop_notes: true
+      rule_hints: true
+      unanswerable_factor: 1.0
+      kernel: {per_shop: 6, max_workers: 24, mem_gb: 12}
+      context_tokens: 32768
+      chars_per_token: 1.8
+      cards_chars: 8000
+      readme_chars: 7000
+      history_chars: 36000
+decision:
+  min_score: 0.8
+  min_share: 0.6
+  unanswerable_min_score: 0.9
+  calibration_path: configs/calibration.yaml
+  unexplained_factor: [1.0, 0.5, 0.0]
+  health_factor: {recon_mismatch: 0.5, header_rows: 1.0, duplicate_sources: 1.0}
+  recon_mismatch_max: 0.2
+  type_contract: true
+  # v3.1.0
+  llm_only_abstained: true       # đáp án tầng A giữ nguyên; LLM chỉ chạy cho câu tầng A bỏ trống
+  llm_keep_tier_a: true
+  llm_answer_types: null         # LLM được đưa mọi kiểu đáp án (đếm phiếu là chốt chặn)
+  llm_reject_zero: true          # đáp án 0 / 0% / ±100% chỉ từ LLM -> bỏ trống (thận trọng)
+  llm_vote: consensus
+  min_votes: 2
+  unanswerable_min_votes: 3

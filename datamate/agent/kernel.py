@@ -10,6 +10,7 @@ An toàn:
     `tables[...]` trả bản sao nông -> code của session này sửa bảng không ảnh hưởng session khác
 Code được cấp: pd, np, re, math, json, date, datetime, timedelta, tables, canon, meta, fold, to_num, parse_date,
 month_end, round_money, sql(query) (DuckDB trên các bảng canon / tables), answer(type, value, reason).
+v3.1.0 thêm hàm hỗ trợ tổng quát (datamate/agent/helpers.py): period, find, peek, lunar, solar, holidays.
 """
 from __future__ import annotations
 
@@ -164,6 +165,7 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
         warnings.simplefilter('error', _cae)
     from datamate.core.textutil import fold, month_end, parse_date, to_num
     from datamate.reasoning.executor import round_money
+    from datamate.agent import helpers as _h
     with open(pack_path, 'rb') as f:
         pack = pickle.load(f)
     tables = _Frames({k: v for k, v in (pack.get('tables') or {}).items() if v is not None})
@@ -243,6 +245,36 @@ def _worker_main(conn, pack_path: str, mem_gb: float, out_limit: int):   # pragm
             ns['__answer__'] = {'type': str(type).strip().lower(), 'value': value, 'reason': reason}
             return 'OK: đã ghi đáp án'
         ns['answer'] = answer
+
+        # v3.1.0 — hàm hỗ trợ tổng quát (không chứa luật nghiệp vụ)
+        def _cal():
+            return str(ns['meta'].get('calendar_path') or '')
+
+        def period(text, as_of=None):
+            return _h.period(text, as_of if as_of is not None else ns['meta'].get('as_of_date'), _cal())
+
+        def peek(name=None, k=6):
+            if name is None:
+                out = ['canon (đã chuẩn hoá):']
+                for n in ns['canon'].keys():
+                    df = ns['canon'][n]
+                    if hasattr(df, 'columns') and len(df):
+                        out.append(f'  {n}: {len(df)} dòng; cột {list(df.columns)[:40]}')
+                out.append('tables (bảng gốc):')
+                for n in ns['tables'].keys():
+                    df = ns['tables'][n]
+                    if hasattr(df, 'columns'):
+                        out.append(f'  {n}: {len(df)} dòng; cột {list(df.columns)[:40]}')
+                print('\n'.join(out))
+                return None
+            src = ns['canon'] if name in ns['canon'] else ns['tables']
+            print(_h.describe(src[name], str(name), k=k))
+            return None
+
+        ns.update(period=period, find=_h.find, peek=peek,
+                  lunar=lambda d: _h.lunar(d, _cal()),
+                  solar=lambda nam_am, thang_am, ngay_am, nhuan=False: _h.solar(nam_am, thang_am, ngay_am, nhuan, _cal()),
+                  holidays=lambda kw: _h.holidays(kw, _cal()))
         return ns
 
     conn.send({'ready': True})

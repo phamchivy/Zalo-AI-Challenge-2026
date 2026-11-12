@@ -18,6 +18,7 @@ from datamate.core.log import get_logger
 from datamate.core.registry import get_strategy
 from datamate.core.types import AnswerType, Decision, Question, Trace
 from datamate.data.catalog import build_all
+from datamate.decision.consensus import consensus
 from datamate.decision.voter import decide
 from datamate.decision.data_guard import guard as data_guard
 from datamate.execution.sandbox import Sandbox
@@ -62,6 +63,8 @@ class Orchestrator:
             return None
         from datamate.runtime.llm_client import LLMClient
         llm = LLMClient(self.cfg.llm)
+        if not self.cfg.llm.health_check:          # v3.1.0: API không có /models (vd endpoint nội bộ) -> dùng luôn
+            return llm
         t0 = time.time()
         while time.time() - t0 < self.cfg.llm.wait_ready_sec:
             if await llm.health():
@@ -95,7 +98,7 @@ class Orchestrator:
         log.info('catalog xong sau %.1fs', time.time() - t_start)
         llm = await self._make_llm()
         env = Env(cfg=self.cfg, kb=kb, llm=llm, sandbox=Sandbox(self.cfg.sandbox_timeout_sec, max_parallel=self.cfg.workers),
-                  deadline=_t0(t_start) + self.cfg.time_budget_sec)
+                  deadline=_t0(t_start) + self.cfg.time_budget_sec, split_dir=str(self.split))
         strategies = [get_strategy(s.name)(s, env) for s in self.cfg.strategies if s.enabled]
         writer = SubmissionWriter(str(self.out), resume=resume)
         sem = asyncio.Semaphore(self.cfg.question_concurrency)
@@ -151,7 +154,10 @@ class Orchestrator:
                     log.warning('%s crash: %s', q.id, traceback.format_exc()[-500:])
                     d = Decision(qid=q.id, type=AnswerType.ABSTAIN, policy=f'crash: {e!r}'[:200])
                     u = None
-                if u is not None and llm_strats and env.llm_allowed() and not confident(d):
+                need_llm = not confident(d)
+                if self.cfg.decision.llm_only_abstained:       # v3.1.0: đáp án tầng A giữ nguyên -> không gọi LLM
+                    need_llm = d.type == AnswerType.ABSTAIN
+                if u is not None and llm_strats and env.llm_allowed() and need_llm:
                     pending[q.business_id].append((q, u, cands, intent, times, t0, d))
                 else:
                     finish(q, intent, times, cands, d, t0)
@@ -192,7 +198,11 @@ class Orchestrator:
                                 new += r
                         contract(u, new)
                         cands = cands + new
-                        d = llm_policy(d0, decide(q.id, cands, self.cfg.decision))
+                        if self.cfg.decision.llm_vote == 'consensus':      # v3.1.0: đếm phiếu, tầng A = 1 phiếu thường
+                            d1 = consensus(q.id, cands, self.cfg.decision, {st.name for st in llm_strats})
+                        else:
+                            d1 = decide(q.id, cands, self.cfg.decision)
+                        d = llm_policy(d0, d1)
                     else:
                         stats['llm_out_of_time'] += 1
                 except Exception as e:  # noqa: BLE001

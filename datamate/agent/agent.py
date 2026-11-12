@@ -17,6 +17,7 @@ import json
 import re
 import time
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from datamate.agent.kernel import KernelPool
@@ -218,7 +219,8 @@ class Agent(Strategy):
                 {'role': 'user', 'content': shop},
                 {'role': 'assistant', 'content': 'Tôi đã đọc dữ liệu của shop. Mời đưa câu hỏi.'},
                 {'role': 'user', 'content': self.question_block(u, style)}]
-        meta_q = {'as_of_date': u.ctx.q.as_of_date.isoformat(), 'question': u.ctx.q.question}
+        meta_q = {'as_of_date': u.ctx.q.as_of_date.isoformat(), 'question': u.ctx.q.question,
+                  'calendar_path': str(Path(env.split_dir) / 'calendar.csv') if env.split_dir else ''}
         expected = set(u.ctx.expected_types) if u.ctx.expected_types else None
         fq = u.ctx.fq
         t0, tokens, cells, warned, nudges = time.time(), 0, [], False, 0
