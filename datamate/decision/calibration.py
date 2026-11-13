@@ -27,16 +27,17 @@ def wilson_lower(ok: int, n: int, z: float = 1.0) -> float:
 
 
 class Calibration:
-    def __init__(self, table: Optional[dict] = None, min_n: int = 8):
+    def __init__(self, table: Optional[dict] = None, min_n: int = 8, weak_metric_factor: float = 1.0):
         self.table = table or {}
         self.min_n = min_n
+        self.weak_metric_factor = weak_metric_factor        # v3.2.0a: hệ số khi kế hoạch dựa vào số đo mặc định
 
     @classmethod
     def load(cls, path: Optional[str]) -> 'Calibration':
         if not path or not Path(path).exists():
             return cls()
         d = yaml.safe_load(Path(path).read_text(encoding='utf-8')) or {}
-        return cls(d.get('intents', {}), int(d.get('min_n', 8)))
+        return cls(d.get('intents', {}), int(d.get('min_n', 8)), float(d.get('weak_metric_factor', 1.0)))
 
     def base(self, intent: str, prior: float) -> tuple[float, str]:
         r = self.table.get(intent)
@@ -61,6 +62,9 @@ def rule_confidence(parse, canon, dcfg, cal: Calibration) -> tuple[float, dict]:
     if h.get('duplicate_sources', 0) > 0:
         fh *= dcfg.health_factor.get('duplicate_sources', 1.0)
         warn.append('duplicate_sources')
-    conf = base * fu * fh
+    weak = bool((parse.features or {}).get('weak_metric'))
+    fw = cal.weak_metric_factor if weak else 1.0
+    conf = base * fu * fh * fw
     return conf, {'base': round(base, 4), 'base_src': src, 'unexplained': n_unk, 'f_unexplained': fu, 'f_health': fh,
+                  'weak_metric': weak, 'f_weak': fw,
                   'health_warn': warn}

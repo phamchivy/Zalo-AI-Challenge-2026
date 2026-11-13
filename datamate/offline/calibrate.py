@@ -54,7 +54,8 @@ def collect(split: str, run: str, businesses: Optional[set] = None) -> list[dict
             meta = rule.get('meta') or {}
             r['rule'] = {'s': score_one({'type': t, 'answer': a} if t else None, g),
                          'prior': meta.get('base', rule.get('weight', 0.9)) if meta.get('base_src', 'prior') == 'prior' else 0.9,
-                         'f': meta.get('f_unexplained', 1.0) * meta.get('f_health', 1.0)}
+                         'f': meta.get('f_unexplained', 1.0) * meta.get('f_health', 1.0),
+                         'weak': bool(meta.get('weak_metric'))}
         if guard:
             r['guard'] = score_one({'type': 'unanswerable'}, g)
         rows.append(r)
@@ -71,6 +72,17 @@ def table(rows: list[dict]) -> dict:
             for k, (n, ok) in sorted(agg.items())}
 
 
+def weak_factor(rows: list[dict], min_n: int) -> float:
+    """v3.2.0a: (độ chính xác khi kế hoạch dựa vào số đo mặc định) / (độ chính xác chung), cắt về [0, 1]."""
+    rr = [r for r in rows if r['rule'] and r['rule']['f'] > 0]
+    wk = [r for r in rr if r['rule'].get('weak')]
+    if len(wk) < min_n or not rr:
+        return 1.0
+    p_all = sum(r['rule']['s'] == 1 for r in rr) / len(rr)
+    p_wk = sum(r['rule']['s'] == 1 for r in wk) / len(wk)
+    return round(max(0.0, min(1.0, p_wk / p_all if p_all else 0.0)), 4)
+
+
 def simulate(rows: list[dict], k: int, min_n: int) -> dict:
     """PA out-of-fold cho từng ngưỡng min_score."""
     folds = defaultdict(list)
@@ -80,6 +92,7 @@ def simulate(rows: list[dict], k: int, min_n: int) -> dict:
     for f, fr in folds.items():
         other = [r for g, rs in folds.items() if g != f for r in rs]
         tab = table(other)
+        fw = weak_factor(other, min_n)
         for r in fr:
             for t in THRESHOLDS:
                 res[t][2] += 1
@@ -89,7 +102,7 @@ def simulate(rows: list[dict], k: int, min_n: int) -> dict:
                 elif r['rule']:
                     row = tab.get(r['intent'])
                     base = row['lower'] if row and row['n'] >= min_n else r['rule']['prior']
-                    if base * r['rule']['f'] >= t:
+                    if base * r['rule']['f'] * (fw if r['rule'].get('weak') else 1.0) >= t:
                         s = r['rule']['s']
                 res[t][0] += s == 1
                 res[t][1] += s == -1
@@ -105,7 +118,7 @@ def calibrate(split: str, run: str, out: str, folds: int = 5, min_n: int = 8, bu
     best = max(oof.items(), key=lambda kv: kv[1]['PA'])
     doc = {'note': 'sinh bởi datamate calibrate; intent -> độ chính xác của tầng A đo trên train (lower = cận dưới Wilson z=1)',
            'shops': 'dev' if businesses is not None else 'all', 'min_n': min_n, 'folds': folds, 'questions': len(rows), 'recommended_min_score': float(best[0]),
-           'oof_by_threshold': oof, 'intents': tab}
+           'weak_metric_factor': weak_factor(rows, min_n), 'oof_by_threshold': oof, 'intents': tab}
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False), encoding='utf-8')
     return doc

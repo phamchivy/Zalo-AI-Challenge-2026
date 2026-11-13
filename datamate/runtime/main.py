@@ -216,6 +216,9 @@ def cmd_calibrate(args):
     for t, r in doc['oof_by_threshold'].items():
         print(f"  min_score={t:>5}: PA={r['PA']:+.4f} đúng={r['correct']} sai={r['wrong']} precision={r['precision']}")
     print(f"=> đề xuất decision.min_score = {doc['recommended_min_score']}  (ghi vào configs/no_llm.yaml)")
+    print(f"hệ số khi số đo dựa vào mặc định (weak_metric_factor) = {doc.get('weak_metric_factor')}")
+    low = sorted(((k, v) for k, v in doc['intents'].items() if v['n'] >= args.min_n), key=lambda kv: kv[1]['lower'])[:12]
+    print('intent có độ tin cậy thấp nhất:', ', '.join(f"{k}={v['lower']} ({v['ok']}/{v['n']})" for k, v in low))
     print(f'đã ghi {args.out}')
 
 

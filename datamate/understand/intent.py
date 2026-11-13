@@ -413,6 +413,10 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         if unit or re.search(r'\b(so luong|ban (ra |duoc )?(bao nhieu|may)(?! tien| dong\b| trieu\b))\b', qn) and not re.search(r'\btien\b|doanh thu|\b(may|bao nhieu) (dong|trieu)\b', qn):
             return 'qty'
         if re.search(REV_WORDS, qn):
+            # v3.2.0a: chỉ khớp từ chung chung ('tiền', 'mấy đồng', 'thu về'...) chứ không phải 'doanh thu' / 'tiền hàng'
+            # -> kế hoạch dựa vào mặc định, không phải mẫu rõ: đánh dấu để hạ độ tin cậy (mức hạ chọn trên câu viết lại)
+            if not re.search(r'\b(doanh thu|doanh so|tien hang|tien ban)\b', qn):
+                feats['weak_metric'] = 1
             return 'revenue'
         return None
 
@@ -512,6 +516,8 @@ def parse_question(qn: str, qf: str, as_of: date, tp: TimeParse, ix: EL.EntityIn
         if filters.keys() & {'category', 'customer_group', 'rx', 'channel', 'payment', 'product', 'ingredient', 'size', 'shift', 'staff', 'customer'}:
             met = base_metric()
             if met not in ('orders', 'qty'):
+                if met is None:
+                    feats['weak_metric'] = 1          # v3.2.0a: không có từ chỉ số đo -> mặc định doanh thu
                 met = 'revenue'
             return res('share', mk(met, 'share', answer_type=AnswerType.PERCENT))
         return none('share', 'share without filter')
