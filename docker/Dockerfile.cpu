@@ -1,0 +1,17 @@
+# v3.2.1 — Image KHÔNG có LLM (chỉ tầng A, chạy CPU): nhỏ, build nhanh. Dùng để
+#   (1) kiểm tra định dạng / đường dẫn / thư viện bằng "Test Solution" của BTC,
+#   (2) làm bản nộp dự phòng chắc chắn chạy được (mức public 0.585).
+#   docker build -f docker/Dockerfile.cpu -t datamate:cpu .
+#   docker run --rm -v /path/public_test:/data -v /path/out:/result datamate:cpu
+FROM python:3.11-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATAMATE_NO_LLM=1 CONFIG=/app/configs/no_llm.yaml
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN grep -v '^pytest' /app/requirements.txt > /tmp/req.txt && pip install --no-cache-dir -r /tmp/req.txt
+COPY datamate /app/datamate
+COPY configs /app/configs
+COPY docker/predict.sh /app/predict.sh
+COPY README.md /app/README.md
+RUN chmod +x /app/predict.sh && python -c "import datamate.reasoning.strategies, datamate.runtime.main"
+CMD ["/app/predict.sh"]

@@ -5,11 +5,11 @@ set -uo pipefail
 export DATAMATE_T0=${DATAMATE_T0:-$(date +%s)}      # mốc 6 giờ tính từ lúc container khởi động (gồm nạp mô hình)
 DATA=${DATA:-/data}
 OUT=${OUT:-/result}
-CONFIG=${CONFIG:-/app/configs/v2_agent.yaml}
+CONFIG=${CONFIG:-/app/configs/qa_qwen14b.yaml}
 MODE=${VLLM_MODE:-tp}                 # tp: 1 bản chia 2 GPU (chắc chắn ≤15B) | dp: mỗi GPU 1 bản
 QUANT=${QUANT:-fp8}
 MODEL_DIR=${DATAMATE_MODEL_DIR:-/models/llm}
-SERVED=${DATAMATE_LLM_MODEL:-qwen}
+SERVED=${DATAMATE_LLM_MODEL:-qwen3-14b}
 MAX_LEN=${MAX_MODEL_LEN:-32768}
 GPU_UTIL=${GPU_UTIL:-0.90}
 mkdir -p "$OUT/logs" /tmp/vllm_logs

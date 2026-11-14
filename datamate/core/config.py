@@ -117,15 +117,20 @@ def load_config(path: Optional[str] = None, overrides: Optional[dict] = None) ->
     if overrides:
         data = _deep_merge(data, overrides)
     # biến môi trường cho triển khai (predict.sh)
+    # v3.2.1: cùng một server vLLM phục vụ cả LLM hỏi đáp lẫn LLM dựng dữ liệu (mapping_llm)
     if os.environ.get('DATAMATE_LLM_URLS'):
-        data.setdefault('llm', {})['base_urls'] = os.environ['DATAMATE_LLM_URLS'].split(',')
+        urls = os.environ['DATAMATE_LLM_URLS'].split(',')
+        data.setdefault('llm', {})['base_urls'] = urls
+        data.setdefault('mapping_llm', {})['base_url'] = urls[0]
     if os.environ.get('DATAMATE_LLM_MODEL'):
         data.setdefault('llm', {})['model'] = os.environ['DATAMATE_LLM_MODEL']
+        data.setdefault('mapping_llm', {})['model'] = os.environ['DATAMATE_LLM_MODEL']
     for env, k in (('DM_LLM_URL', 'base_url'), ('DM_LLM_MODEL', 'model')):
         if os.environ.get(env):
             data.setdefault('mapping_llm', {})[k] = os.environ[env]
     if os.environ.get('DATAMATE_NO_LLM') == '1':
         data.setdefault('llm', {})['enabled'] = False
+        data.setdefault('mapping_llm', {})['enabled'] = False     # v3.2.1: không có server -> tắt cả LLM dựng dữ liệu
     return Config(**data)
 
 
