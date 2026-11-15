@@ -93,7 +93,7 @@ def test_prompt_rule_scope_principle():
 
 def test_qa_configs_aligned():
     cs = [load_config(str(ROOT / 'configs' / f)) for f in ('qa_glm.yaml', 'qa_gemini.yaml', 'qa_qwen14b.yaml')]
-    assert all(c.decision == cs[0].decision for c in cs)
+    assert all(c.decision.model_copy(update={'min_votes': 0}) == cs[0].decision.model_copy(update={'min_votes': 0}) for c in cs)
     assert all(not c.strategy('agent').options['shop_notes'] for c in cs)
     assert cs[1].llm.api_key_env == 'GEMINI_API_KEY' and cs[1].llm.extra_body == {'reasoning_effort': 'low'}
     for f in ('qa_glm.yaml', 'qa_gemini.yaml'):

@@ -71,5 +71,5 @@ decision:
   llm_answer_types: null         # LLM được đưa mọi kiểu đáp án (đếm phiếu là chốt chặn)
   llm_reject_zero: true          # đáp án 0 / 0% / ±100% chỉ từ LLM -> bỏ trống (thận trọng)
   llm_vote: consensus
-  min_votes: 2
+  min_votes: 3                   # v3.2.2: Qwen3-14B — thử 30 câu: 3/3 cho 5 đúng / 0 sai, 2/3 cho 6 đúng / 3 sai
   unanswerable_min_votes: 3

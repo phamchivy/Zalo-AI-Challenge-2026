@@ -51,7 +51,10 @@ if [ -n "$URLS" ]; then
   done
   if [ $READY -eq 0 ]; then
     echo "[predict] vLLM không lên sau 15 phút -> chạy chỉ tầng A (không LLM)"
+    tail -n 60 /tmp/vllm_logs/*.log 2>/dev/null
     export DATAMATE_NO_LLM=1
+  else
+    echo "[predict] vLLM sẵn sàng sau $(( $(date +%s) - DATAMATE_T0 ))s"
   fi
 else
   echo "[predict] Không có GPU hoặc model -> chạy chỉ tầng A"
@@ -72,5 +75,15 @@ with open(f'{o}/submission.jsonl', 'w') as f:
         if l.strip():
             f.write(json.dumps({'id': json.loads(l)['id'], 'type': 'abstain'}) + '\n')
 PY
+fi
+# v3.2.2: chế độ kiểm thử cho "Test Solution" của BTC — log chỉ hiện khi lỗi, nên in tóm tắt rồi CỐ Ý thoát lỗi
+# để đọc được: vLLM có lên không, bao nhiêu câu qua LLM, tổng thời gian. Bản nộp thật: KHÔNG đặt biến này.
+if [ "${DATAMATE_DEBUG_FAIL:-0}" = "1" ]; then
+  echo "[debug] tổng thời gian từ lúc container khởi động: $(( $(date +%s) - DATAMATE_T0 ))s; mã thoát predict: $RC"
+  echo "[debug] nvidia-smi:"; nvidia-smi -L 2>/dev/null || echo "(không có GPU)"
+  echo "[debug] run_summary:"; python -c "import json;d=json.load(open('$OUT/run_summary.json'));d.pop('catalogs',None);print(json.dumps(d,ensure_ascii=False,indent=1))" 2>&1 | head -60
+  echo "[debug] số dòng submission: $(wc -l < $OUT/submission.jsonl)"
+  tail -n 20 /tmp/vllm_logs/*.log 2>/dev/null
+  exit 1
 fi
 exit $RC

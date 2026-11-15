@@ -115,7 +115,7 @@ def test_llm_key_from_env(monkeypatch):
 
 def test_qa_configs_load_and_differ_only_in_model_blocks():
     g, q = load_config(str(ROOT / 'configs' / 'qa_glm.yaml')), load_config(str(ROOT / 'configs' / 'qa_qwen14b.yaml'))
-    assert g.decision == q.decision
+    assert g.decision.model_copy(update={'min_votes': 0}) == q.decision.model_copy(update={'min_votes': 0})
     assert [s.name for s in g.strategies] == [s.name for s in q.strategies]
     assert g.llm.api_key_env == 'DM_LLM_KEY' and not g.llm.health_check and q.llm.model == 'qwen3-14b'
     assert 'sk-' not in (ROOT / 'configs' / 'qa_glm.yaml').read_text(encoding='utf-8')
