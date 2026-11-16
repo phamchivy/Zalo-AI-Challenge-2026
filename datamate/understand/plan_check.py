@@ -137,15 +137,52 @@ def _op_text(p: Plan) -> str:
         wd = WD[int(p.threshold) - 1] if p.threshold else '?'
         return f'trung bình {met} mỗi {wd} trong kỳ chính (tổng chia số ngày {wd})'
     if op == 'unit_price':
-        return 'đơn giá của mặt hàng trong kỳ'
+        return ('đơn giá bán của mặt hàng: đơn giá ghi trên dòng bán (trước chiết khấu dòng, quy về đơn vị cơ bản), '
+                'lấy cả dòng của đơn huỷ / trả, chọn giá xuất hiện nhiều nhất trong kỳ')
     return f'phép "{op}" trên {met}' + (f' theo {gb}' if p.group_by else '')
+
+
+def _special(p: Plan) -> Optional[list[str]]:
+    """Plan có nghĩa kỳ khác thường (executor tự dựng khoảng ngày): in đúng khoảng executor thật sự tính."""
+    from datetime import timedelta
+    if p.metric == 'price_effect':
+        n = int(p.threshold or 0)
+        if p.periods and n > 0:
+            D = date.fromisoformat(str(p.periods[0].start)[:10])
+            a = f'{_d(D)} → {_d(D + timedelta(days=n - 1))}'
+            b = f'{_d(D - timedelta(days=n))} → {_d(D - timedelta(days=1))}'
+            when = f'ngày đổi giá D = {_d(D)}'
+        else:
+            a, b, when = f'{n} ngày kể từ D (gồm D)', f'{n} ngày ngay trước D', 'D = ngày tăng giá tìm trong lịch sử giá'
+        return ['- Đại lượng: số lượng bán của mặt hàng (quy về đơn vị cơ bản)',
+                f'- Phép tính: % thay đổi = (kỳ sau − kỳ trước) / kỳ trước × 100, N = {n} ngày, {when}',
+                f'- Thời gian (kỳ sau): {a}', f'- Thời gian (kỳ trước): {b}']
+    if p.metric == 'dead_stock' and p.periods:
+        t = p.periods[0]
+        return ['- Đại lượng: mặt hàng không bán được (hàng ế)',
+                f'- Phép tính: {"đếm số" if p.op == "count" else "danh sách"} mặt hàng TỪNG bán trước {_d(t.start)} nhưng '
+                f'KHÔNG bán được ngày nào trong {_d(t.start)} → {_d(t.end)}'
+                + (f'; máy đọc từ cụm chữ "{t.expr}"' if t.expr else '')]
+    return None
+
+
+def _knobs_shown(p: Plan, knobs: list[str]) -> list[str]:
+    """Bỏ những nút luật mà dòng 'Phép tính' đã ghi cách áp thật (tránh LLM hiểu nhầm cách executor tính)."""
+    if p.op in ('count_ge', 'pct_ge'):
+        knobs = [k for k in knobs if k != 'threshold.strict']          # so sánh >/≥ thật đã ghi ở dòng phép tính
+    if p.op == 'unit_price':
+        knobs = [k for k in knobs if not k.startswith(('revenue.', 'orders.'))]   # đơn giá lấy cả dòng đơn huỷ / trả
+    return knobs
 
 
 def render_plan(plan: Plan, rules=None, answer_type: Optional[str] = None, answer: Any = None) -> str:
     """Kế hoạch tầng A -> câu chữ cho LLM kiểm tra. Không đọc câu hỏi."""
     p = plan
-    out = [f'- Đại lượng: {_m(p.metric)}', f'- Phép tính: {_op_text(p)}']
-    if p.periods:
+    sp = _special(p)
+    out = sp or [f'- Đại lượng: {_m(p.metric)}', f'- Phép tính: {_op_text(p)}']
+    if sp:
+        pass
+    elif p.periods:
         for i, t in enumerate(p.periods):
             lab = LABEL_VN.get(t.label) or (f'kỳ {i + 1}' if t.label.startswith('series') else t.label)
             n = (date.fromisoformat(str(t.end)[:10]) - date.fromisoformat(str(t.start)[:10])).days + 1
@@ -168,7 +205,7 @@ def render_plan(plan: Plan, rules=None, answer_type: Optional[str] = None, answe
             knobs = []
         for t in p.periods or []:
             knobs += TIME_KNOBS.get(t.granularity, [])
-        knobs = list(dict.fromkeys(knobs))
+        knobs = _knobs_shown(p, list(dict.fromkeys(knobs)))
         if knobs:
             out.append('- Luật đã áp:')
             ev = getattr(rules, 'evidence', {}) or {}

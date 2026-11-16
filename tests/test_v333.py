@@ -115,3 +115,21 @@ def test_configs_ship_plan_check_disabled():
     for f in ('qa_glm', 'canon_glm', 'qa_qwen14b', 'qa_qwen14b_or'):
         c = load_config(str(ROOT / 'configs' / f'{f}.yaml'))
         assert not c.plan_check.enabled and c.plan_check.samples == 2 and c.plan_check.min_reject == 2
+
+
+def test_render_matches_what_executor_computes():
+    # v3.3.4: price_effect -> in đúng 2 cửa sổ N ngày executor tính (không phải "1 ngày D")
+    p = Plan(metric='price_effect', op='value', filters={'product': 'latte (l)'}, threshold=30,
+             periods=[TimeRange(start=date(2026, 2, 5), end=date(2026, 2, 5), expr='05/02/2026')])
+    t = pc.render_plan(p, RuleSet(knobs={'price_effect.def': 'n_from_d_vs_n_before'}))
+    assert '05/02/2026 (thứ Năm) → 06/03/2026' in t and '06/01/2026 (thứ Ba) → 04/02/2026' in t and 'N = 30' in t
+    assert '1 ngày' not in t
+    # count_ge: dấu so sánh thật ghi ở dòng phép tính, không liệt kê threshold.strict
+    p = Plan(metric='orders', op='count_ge', group_by='product', threshold=187, threshold_metric='orders')
+    t = pc.render_plan(p, RuleSet(knobs={'threshold.strict': True, 'revenue.valid_status': ['completed']}))
+    assert '≥ 187' in t and 'threshold.strict' not in t
+    # đơn giá: lấy cả dòng đơn huỷ / trả -> không liệt kê revenue.valid_status
+    p = Plan(metric='revenue', op='unit_price', filters={'product': 'mi hao hao'},
+             periods=[TimeRange(start=date(2025, 5, 25), end=date(2025, 5, 25))])
+    t = pc.render_plan(p, RuleSet(knobs={'unit_price.def': 'line_base_before_disc_all', 'revenue.valid_status': ['completed']}))
+    assert 'revenue.valid_status' not in t and 'unit_price.def' in t and 'đơn huỷ' in t
