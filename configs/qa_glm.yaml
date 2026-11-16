@@ -38,6 +38,14 @@ canon_q:
   concurrency: 48
   max_tokens: 6000               # GLM có suy luận: cần chỗ cho phần suy nghĩ
   temperature: 0.0
+plan_check:
+  enabled: false                 # v3.3.3: LLM kiểm tra kế hoạch tầng A (câu chữ) so với câu hỏi + rulebook; bật bằng --set plan_check.enabled=true
+  samples: 2
+  min_reject: 2                  # cả 2 lần đều bác (có chỗ lệch cụ thể) mới bác
+  concurrency: 48
+  max_tokens: 6000               # GLM có suy luận
+  temperature: 0.3
+  keep_vote: true                # câu bị bác: tầng A vẫn là 1 phiếu ở pha LLM
 strategies:
   - {name: guard, weight: 1.0}
   - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}

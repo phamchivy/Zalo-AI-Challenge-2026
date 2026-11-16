@@ -207,6 +207,11 @@ class Agent(Strategy):
             ents[k] = v
         exp = ', '.join(u.ctx.expected_types) if u.ctx.expected_types else '(tự xác định)'
         rules = self.rules().block(u.ctx.q.question, k=self.rule_hints_k) if self.use_rules else ''
+        # v3.3.3: câu bị bác ở bước kiểm tra kế hoạch -> nói rõ gợi ý tự động bị nghi sai và vì sao
+        warn = [n for n in (u.ctx.notes or []) if n.startswith('máy kiểm tra')]
+        if warn:
+            times += '  (⚠ cách đọc tự động này bị nghi là SAI, tự xác định lại từ câu hỏi)'
+            rules = (rules + '\n' if rules else '') + '- Lưu ý: ' + warn[0][:600]
         return fill(QUESTION_BLOCK, as_of=u.ctx.q.as_of_date.isoformat(), question=u.ctx.q.question, times=times,
                     entities=json.dumps(ents, ensure_ascii=False, default=str)[:1500] if ents else '(không có)', expected=exp,
                     rules=('\n' + rules) if rules else '', style=STYLES.get(style, style), steps=self.max_steps)

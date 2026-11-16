@@ -121,3 +121,4 @@ class Trace(BaseModel):
     elapsed_sec: float = 0.0
     config: str = ''
     canon_question: Optional[str] = None       # v3.3.0: câu hỏi đã chuẩn hoá (nếu có)
+    plan_check: Optional[dict] = None          # v3.3.3: kết quả LLM kiểm tra kế hoạch tầng A (bác / lý do / đáp án tầng A)

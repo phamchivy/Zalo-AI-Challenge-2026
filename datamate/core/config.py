@@ -94,6 +94,19 @@ class CanonQConfig(BaseModel):
     on_conflict: str = 'abstain'      # câu gốc và câu chuẩn cho đáp án tầng A KHÁC nhau: abstain (-> LLM) | keep (giữ câu gốc)
 
 
+class PlanCheckConfig(BaseModel):
+    """v3.3.3 — LLM kiểm tra kế hoạch tầng A (đã in ra câu chữ) so với câu hỏi + rulebook; bác -> bỏ trống -> LLM giải."""
+    enabled: bool = False
+    samples: int = 2                  # số lần hỏi độc lập
+    min_reject: int = 2               # bác khi >= min_reject lần bác (mặc định: mọi lần đều bác)
+    concurrency: int = 32
+    max_tokens: int = 2048
+    temperature: float = 0.3
+    rulebook_chars: int = 40000       # 0 = không gửi rulebook (chỉ so với câu hỏi)
+    keep_vote: bool = True            # câu bị bác: tầng A vẫn là 1 phiếu khi đếm phiếu ở pha LLM
+    answer_in_prompt: bool = True     # cho LLM thấy kiểu + giá trị kết quả tầng A
+
+
 class Config(BaseModel):
     name: str = 'baseline'
     cache_dir: str = '/tmp/datamate_cache'
@@ -105,6 +118,7 @@ class Config(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     mapping_llm: MappingLLMConfig = Field(default_factory=MappingLLMConfig)
     canon_q: CanonQConfig = Field(default_factory=CanonQConfig)
+    plan_check: PlanCheckConfig = Field(default_factory=PlanCheckConfig)
     strategies: list[StrategyConfig] = Field(default_factory=lambda: [
         StrategyConfig(name='guard', weight=1.0),
         StrategyConfig(name='rule_plan', weight=1.0),

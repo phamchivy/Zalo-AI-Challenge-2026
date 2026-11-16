@@ -20,6 +20,8 @@ from datamate.core.types import AnswerType, Decision, Question, Trace
 from datamate.data.catalog import build_all
 from datamate.decision.consensus import consensus
 from datamate.understand.canonicalize import canonicalize_all, rule_key
+from datamate.understand import plan_check as pc
+from datamate.output.writer import submission_row
 from datamate.decision.voter import decide
 from datamate.decision.data_guard import guard as data_guard
 from datamate.execution.sandbox import Sandbox
@@ -117,6 +119,9 @@ class Orchestrator:
                     c.error = f'type_contract: {c.answer_type.value} not in {sorted(exp)}'
 
         canon_text: dict[str, str] = {}
+        plan_info: dict[str, dict] = {}                     # v3.3.3: kết quả kiểm tra kế hoạch tầng A
+        to_check: list = []
+        pcfg = self.cfg.plan_check
 
         def finish(q, intent, times, cands, d, t0):
             cat = cats.get(q.business_id)
@@ -127,7 +132,7 @@ class Orchestrator:
                 d = d2
             tr = Trace(qid=q.id, business_id=q.business_id, question=q.question, as_of_date=q.as_of_date, intent=intent,
                        times=times, candidates=cands, decision=d, elapsed_sec=round(time.time() - t0, 3), config=self.cfg.name,
-                       canon_question=canon_text.get(q.id))
+                       canon_question=canon_text.get(q.id), plan_check=plan_info.get(q.id))
             writer.write(d, tr)
             stats[d.type.value] += 1
 
@@ -196,7 +201,11 @@ class Orchestrator:
                 need_llm = not confident(d)
                 if self.cfg.decision.llm_only_abstained:       # v3.1.0: đáp án tầng A giữ nguyên -> không gọi LLM
                     need_llm = d.type == AnswerType.ABSTAIN
-                if u is not None and llm_strats and env.llm_allowed() and need_llm:
+                if (pcfg.enabled and llm is not None and u is not None and not need_llm and u.parse.plan is not None
+                        and d.type not in (AnswerType.ABSTAIN, AnswerType.UNANSWERABLE)
+                        and any(c.strategy.startswith('rule_plan') and c.status == 'ok' for c in cands)):
+                    to_check.append((q, u, cands, intent, times, t0, d))     # v3.3.3: LLM kiểm tra kế hoạch trước khi chốt
+                elif u is not None and llm_strats and env.llm_allowed() and need_llm:
                     pending[q.business_id].append((q, u, cands, intent, times, t0, d))
                 else:
                     finish(q, intent, times, cands, d, t0)
@@ -260,6 +269,43 @@ class Orchestrator:
                                                      self.cfg.cache_dir, cc.concurrency, cc.max_tokens, cc.temperature))
             log.info('chuẩn hoá câu hỏi: %d/%d câu được viết lại, %.1fs', len(canon_text), len(ordered), time.time() - t_c)
         await asyncio.gather(*(phase1(q) for q in ordered))
+
+        # ---- v3.3.3: LLM kiểm tra kế hoạch tầng A (câu tầng A đã trả lời); bác -> bỏ trống -> pha 2 như câu bỏ trống
+        if to_check:
+            t_c = time.time()
+            sem_c = asyncio.Semaphore(max(1, pcfg.concurrency))
+
+            async def check(item):
+                q, u, cands, intent, times, t0, d = item
+                async with sem_c:
+                    try:
+                        row = submission_row(d)
+                        txt = pc.render_plan(u.parse.plan, kb.rules, row.get('type') if pcfg.answer_in_prompt else None,
+                                             row.get('answer') if pcfg.answer_in_prompt else None)
+                        v = await pc.check_one(llm, q.question, q.as_of_date, txt, kb.rulebook.text, pcfg, self.cfg.cache_dir)
+                    except Exception as e:  # noqa: BLE001 - lỗi kiểm tra = giữ tầng A
+                        log.warning('%s plan_check crash: %r', q.id, e)
+                        stats['plan_check_error'] += 1
+                        finish(q, intent, times, cands, d, t0)
+                        return
+                    plan_info[q.id] = {**v, 'tier_a': submission_row(d)}
+                    if not v['reject']:
+                        stats['plan_ok'] += 1
+                        finish(q, intent, times, cands, d, t0)
+                        return
+                    stats['plan_reject'] += 1
+                    if not pcfg.keep_vote:
+                        for c in cands:
+                            if c.strategy.startswith('rule_plan') and c.status == 'ok':
+                                c.status, c.error = 'skipped', 'plan_check_reject'
+                    u.ctx.notes.append('máy kiểm tra cho rằng cách đọc tự động có thể sai: ' + pc.reason_text(v))
+                    d2 = Decision(qid=q.id, type=AnswerType.ABSTAIN, policy='plan_check_reject')
+                    if llm_strats and env.llm_allowed():
+                        pending[q.business_id].append((q, u, cands, intent, times, t0, d2))
+                    else:
+                        finish(q, intent, times, cands, d2, t0)
+            await asyncio.gather(*(check(it) for it in to_check))
+            log.info('kiểm tra kế hoạch: %d câu, bác %d, %.1fs', len(to_check), stats['plan_reject'], time.time() - t_c)
         n_pending = sum(len(v) for v in pending.values())
         log.info('pha 1 xong sau %.1fs: %d câu chắc chắn, %d câu chuyển cho LLM', time.time() - t_start,
                  len(qs) - n_pending - stats['resumed'], n_pending)
