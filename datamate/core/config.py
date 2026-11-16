@@ -85,6 +85,15 @@ class DecisionConfig(BaseModel):
     unanswerable_min_votes: int = 3             # consensus: 'không trả lời được' cần chắc hơn
 
 
+class CanonQConfig(BaseModel):
+    """v3.3.0 — chuẩn hoá câu hỏi bằng LLM (dùng client của khối llm) + kiểm tra đồng thuận với tầng A."""
+    enabled: bool = False
+    concurrency: int = 32
+    max_tokens: int = 2048
+    temperature: float = 0.0
+    on_conflict: str = 'abstain'      # câu gốc và câu chuẩn cho đáp án tầng A KHÁC nhau: abstain (-> LLM) | keep (giữ câu gốc)
+
+
 class Config(BaseModel):
     name: str = 'baseline'
     cache_dir: str = '/tmp/datamate_cache'
@@ -95,6 +104,7 @@ class Config(BaseModel):
     max_repair_rounds: int = 1
     llm: LLMConfig = Field(default_factory=LLMConfig)
     mapping_llm: MappingLLMConfig = Field(default_factory=MappingLLMConfig)
+    canon_q: CanonQConfig = Field(default_factory=CanonQConfig)
     strategies: list[StrategyConfig] = Field(default_factory=lambda: [
         StrategyConfig(name='guard', weight=1.0),
         StrategyConfig(name='rule_plan', weight=1.0),

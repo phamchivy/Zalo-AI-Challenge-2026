@@ -19,6 +19,7 @@ from datamate.core.registry import get_strategy
 from datamate.core.types import AnswerType, Decision, Question, Trace
 from datamate.data.catalog import build_all
 from datamate.decision.consensus import consensus
+from datamate.understand.canonicalize import canonicalize_all, rule_key
 from datamate.decision.voter import decide
 from datamate.decision.data_guard import guard as data_guard
 from datamate.execution.sandbox import Sandbox
@@ -115,6 +116,8 @@ class Orchestrator:
                     c.status = 'error'
                     c.error = f'type_contract: {c.answer_type.value} not in {sorted(exp)}'
 
+        canon_text: dict[str, str] = {}
+
         def finish(q, intent, times, cands, d, t0):
             cat = cats.get(q.business_id)
             levels = (cat.canon.health or {}).get('invariants') if cat is not None else None
@@ -123,12 +126,45 @@ class Orchestrator:
                 stats['data_guard_blocked'] += 1
                 d = d2
             tr = Trace(qid=q.id, business_id=q.business_id, question=q.question, as_of_date=q.as_of_date, intent=intent,
-                       times=times, candidates=cands, decision=d, elapsed_sec=round(time.time() - t0, 3), config=self.cfg.name)
+                       times=times, candidates=cands, decision=d, elapsed_sec=round(time.time() - t0, 3), config=self.cfg.name,
+                       canon_question=canon_text.get(q.id))
             writer.write(d, tr)
             stats[d.type.value] += 1
 
         def confident(d: Decision) -> bool:
             return d.type != AnswerType.ABSTAIN and d.support + 1e-9 >= self.cfg.decision.llm_skip_support
+
+        async def tier_a_canon(q, cq, cat, u, intent, times, cands, d):
+            """v3.3.0: tầng A trên câu chuẩn hoá; kết hợp với câu gốc theo đồng thuận (xem understand/canonicalize.py)."""
+            q2 = Question(id=q.id, business_id=q.business_id, question=cq, as_of_date=q.as_of_date)
+            u2 = understand(q2, cat, kb, ixs[q.business_id])
+            c2 = []
+            for st in strategies:
+                if not st.uses_llm:
+                    c2 += await st.run(u2, cat, ixs[q.business_id])
+            contract(u2, c2)
+            d2 = decide(q.id, c2, self.cfg.decision)
+            for c in c2:
+                c.strategy, c.cand_id = c.strategy + '_canon', c.cand_id + '_canon'
+            k1, k2 = rule_key(cands), rule_key(c2)
+            u.ctx.notes.append(f'câu viết chuẩn (máy viết lại, có thể sai): {cq}')
+            allc = cands + c2
+            if k1 and k2 and k1 != k2:
+                stats['canon_conflict'] += 1
+                if self.cfg.canon_q.on_conflict == 'abstain':
+                    return u, intent, times, allc, Decision(qid=q.id, type=AnswerType.ABSTAIN, policy='canon_conflict')
+                return u, intent, times, allc, d
+            if k2 and not k1:
+                stats['canon_rescue'] += 1
+                u2.ctx.notes.append(f'câu gốc: {q.question}')
+                if d2.type != AnswerType.ABSTAIN:
+                    d2 = d2.model_copy(update={'policy': f'canon({d2.policy})'})
+                return u2, u2.ctx.intent, u2.ctx.times, allc, d2
+            if k1 and k2:
+                stats['canon_agree'] += 1
+                if d.type == AnswerType.ABSTAIN and d2.type != AnswerType.ABSTAIN:
+                    return u, intent, times, allc, d2.model_copy(update={'policy': f'canon_agree({d2.policy})'})
+            return u, intent, times, allc, d
 
         # ---- pha 1: tầng A (không LLM) cho mọi câu; câu chắc chắn ghi ngay, còn lại chờ pha 2
         async def phase1(q: Question):
@@ -149,6 +185,9 @@ class Orchestrator:
                             cands += await st.run(u, cat, ixs[q.business_id])
                     contract(u, cands)
                     d = decide(q.id, cands, self.cfg.decision)
+                    cq = canon_text.get(q.id)
+                    if cq:                                   # v3.3.0: đọc thêm câu đã chuẩn hoá, so đồng thuận
+                        u, intent, times, cands, d = await tier_a_canon(q, cq, cat, u, intent, times, cands, d)
                 except Exception as e:  # noqa: BLE001 - một câu lỗi không làm hỏng cả lần chạy
                     import traceback
                     log.warning('%s crash: %s', q.id, traceback.format_exc()[-500:])
@@ -214,6 +253,12 @@ class Orchestrator:
         for q in qs:
             by_biz[q.business_id].append(q)
         ordered = [q for b in biz for q in by_biz[b]]
+        if self.cfg.canon_q.enabled and llm is not None:          # v3.3.0: chuẩn hoá câu hỏi trước pha 1
+            t_c = time.time()
+            cc = self.cfg.canon_q
+            canon_text.update(await canonicalize_all(llm, [q for q in ordered if q.id not in writer.done],
+                                                     self.cfg.cache_dir, cc.concurrency, cc.max_tokens, cc.temperature))
+            log.info('chuẩn hoá câu hỏi: %d/%d câu được viết lại, %.1fs', len(canon_text), len(ordered), time.time() - t_c)
         await asyncio.gather(*(phase1(q) for q in ordered))
         n_pending = sum(len(v) for v in pending.values())
         log.info('pha 1 xong sau %.1fs: %d câu chắc chắn, %d câu chuyển cho LLM', time.time() - t_start,

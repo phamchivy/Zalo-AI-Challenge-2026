@@ -33,6 +33,11 @@ mapping_llm:
   timeout_sec: 300
   retries: 3
   min_conf: 0.8
+canon_q:
+  enabled: true                  # v3.3.0: chuẩn hoá câu hỏi + kiểm tra đồng thuận với tầng A
+  concurrency: 48
+  max_tokens: 6000               # GLM có suy luận: cần chỗ cho phần suy nghĩ
+  temperature: 0.0
 strategies:
   - {name: guard, weight: 1.0}
   - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
@@ -42,7 +47,7 @@ strategies:
     options:
       styles: [canon_pandas, canon_check, sql]
       temperatures: [0.3, 0.6, 0.8]
-      max_steps: 8
+      max_steps: 10                  # v3.3.0: lần chạy public 8 bước vẫn dồn 240 lời giải ở bước cuối, 48 hết lượt
       max_tokens_step: 8192
       cell_timeout: 30
       shop_notes: false            # v3.1.1: hỏng JSON ở 11/13 shop với GLM, tốn 1 lượt suy luận mỗi shop

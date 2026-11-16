@@ -120,3 +120,4 @@ class Trace(BaseModel):
     decision: Optional[Decision] = None
     elapsed_sec: float = 0.0
     config: str = ''
+    canon_question: Optional[str] = None       # v3.3.0: câu hỏi đã chuẩn hoá (nếu có)

@@ -1,0 +1,61 @@
+# v3.3.0 — ĐO tầng A + chuẩn hoá câu hỏi (GLM), KHÔNG có agent: dùng trên bộ dev viết lại để so với tầng A thuần.
+# v3.1.0 — tầng A + LLM (GLM nội bộ) cho câu tầng A bỏ trống: LLM đọc câu hỏi + RULEBOOK, viết pandas trên canon /
+# bảng gốc (có hàm hỗ trợ tổng quát), 3 lời giải độc lập, đếm phiếu (>= 2/3 cùng đáp án; tầng A = 1 phiếu thường).
+# Dùng để PHÁT TRIỂN / đo. Khoá API: export DM_LLM_KEY=...  (không ghi vào file).
+# Đổi sang Qwen3-14B chạy vLLM: dùng configs/qa_qwen14b.yaml (chỉ khác khối llm / mapping_llm / ngân sách ngữ cảnh).
+name: canon_glm
+cache_dir: /tmp/datamate_cache
+workers: 4
+question_concurrency: 12         # v3.1.1: nút thắt là độ trễ API, không phải RAM -> chạy nhiều câu song song
+time_budget_sec: 19800
+sandbox_timeout_sec: 30
+llm:
+  enabled: true
+  base_urls: ["http://172.20.1.114:30008/model-as-a-service/v1"]
+  model: glm-4.7-cc
+  api_key_env: DM_LLM_KEY
+  health_check: false            # endpoint không có /models
+  temperature: 0.3
+  seed: 42
+  max_tokens: 8192
+  timeout_sec: 300
+  max_concurrency: 36
+  retries: 5
+  guided_json: false             # endpoint bỏ qua json_schema
+  disable_thinking: false        # GLM là model suy luận: cần max_tokens lớn để phần trả lời không rỗng
+mapping_llm:
+  enabled: true
+  base_url: http://172.20.1.114:30008/model-as-a-service/v1
+  model: glm-4.7-cc
+  api_key_env: DM_LLM_KEY
+  json_mode: prompt
+  disable_thinking: false
+  max_tokens: 8192
+  timeout_sec: 300
+  retries: 3
+  min_conf: 0.8
+canon_q:
+  enabled: true                  # v3.3.0: chuẩn hoá câu hỏi + kiểm tra đồng thuận với tầng A
+  concurrency: 48
+  max_tokens: 6000               # GLM có suy luận: cần chỗ cho phần suy nghĩ
+  temperature: 0.0
+strategies:
+  - {name: guard, weight: 1.0}
+  - {name: rule_plan, weight: 1.0, options: {unanswerable_weight: 0.5}}
+decision:
+  min_score: 0.8
+  min_share: 0.6
+  unanswerable_min_score: 0.9
+  calibration_path: configs/calibration.yaml
+  unexplained_factor: [1.0, 0.5, 0.0]
+  health_factor: {recon_mismatch: 0.5, header_rows: 1.0, duplicate_sources: 1.0}
+  recon_mismatch_max: 0.2
+  type_contract: true
+  # v3.1.0
+  llm_only_abstained: true       # đáp án tầng A giữ nguyên; LLM chỉ chạy cho câu tầng A bỏ trống
+  llm_keep_tier_a: true
+  llm_answer_types: null         # LLM được đưa mọi kiểu đáp án (đếm phiếu là chốt chặn)
+  llm_reject_zero: true          # đáp án 0 / 0% / ±100% chỉ từ LLM -> bỏ trống (thận trọng)
+  llm_vote: consensus
+  min_votes: 2
+  unanswerable_min_votes: 3
