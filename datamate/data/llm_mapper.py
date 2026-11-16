@@ -167,11 +167,25 @@ def _role_candidates(tm, prof) -> tuple[list[str], list[str]]:
     return roles, cols
 
 
+def _assign(M):
+    """Gán một-một cột <-> vai trò, tổng độ tin cậy lớn nhất. scipy (Hungarian) nếu có; không có thì tham lam
+    (v3.3.2: thiếu scipy từng làm hỏng im lặng toàn bộ bước gán vai trò bằng LLM)."""
+    try:
+        from scipy.optimize import linear_sum_assignment
+        return linear_sum_assignment(-M)
+    except ImportError:
+        cells = sorted(((M[i, j], i, j) for i in range(M.shape[0]) for j in range(M.shape[1]) if M[i, j] > 0), reverse=True)
+        ri, ci, ui, uj = [], [], set(), set()
+        for _, i, j in cells:
+            if i not in ui and j not in uj:
+                ri.append(i); ci.append(j); ui.add(i); uj.add(j)
+        return ri, ci
+
+
 def suggest_roles(client, profiles, bm: BusinessMapping, min_conf: float = 0.8,
                   raw_out: Optional[dict] = None) -> dict[str, dict[str, tuple[str, float]]]:
     """{bảng: {role: (cột, conf)}} — chỉ cho bảng bán hàng còn thiếu vai trò cốt lõi.
     raw_out (nếu truyền): {bảng: [(cột, role, conf), ...]} — toàn bộ đề xuất thô của LLM (để chẩn đoán / báo đỏ)."""
-    from scipy.optimize import linear_sum_assignment
     out: dict[str, dict[str, tuple[str, float]]] = {}
     for t, tm in bm.tables.items():
         if tm.ttype not in SALES_TYPES or t not in profiles:
@@ -221,7 +235,7 @@ def suggest_roles(client, profiles, bm: BusinessMapping, min_conf: float = 0.8,
         M = np.zeros((len(cs), len(rs)))
         for c, r, conf in pairs:
             M[cs.index(c), rs.index(r)] = max(M[cs.index(c), rs.index(r)], conf)
-        ri, ci = linear_sum_assignment(-M)                 # Hungarian: gán một-một, tổng độ tin cậy lớn nhất
+        ri, ci = _assign(M)                                # Hungarian: gán một-một, tổng độ tin cậy lớn nhất
         got = {rs[j]: (cs[i], float(M[i, j])) for i, j in zip(ri, ci) if M[i, j] >= min_conf}
         if got:
             out[t] = got
