@@ -1,11 +1,11 @@
-runs/
-.git/
-.venv/
-venv*/
-__pycache__/
-*.pyc
-.pytest_cache/
-tests/
-*.tar
-*.tar.gz
-*.patch
+# v3.4.0: chỉ đưa vào image đúng những gì cần (model + data train đi qua --build-context)
+*
+!Dockerfile
+!requirements.txt
+!datamate/
+!configs/
+!docker/predict.sh
+!docker/README_SUBMIT.md
+!training_code/
+**/__pycache__
+**/*.pyc

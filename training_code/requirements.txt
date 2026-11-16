@@ -1,0 +1,2 @@
+# Bước hiệu chỉnh (calibrate) dùng chung mã và thư viện với suy luận: /code/requirements.txt (đã cài trong image).
+-r ../requirements.txt

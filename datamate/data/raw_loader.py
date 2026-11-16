@@ -176,7 +176,7 @@ def load_file(p: Path) -> list[RawTable]:
                                 df=df.reset_index(drop=True), header_row=items[0][2]))
         return out
     if ext in ('.sqlite', '.db', '.sqlite3'):
-        con = sqlite3.connect(f'file:{p}?mode=ro', uri=True)
+        con = sqlite3.connect(f'file:{p}?mode=ro&immutable=1', uri=True)
         out = []
         try:
             for (t,) in con.execute("select name from sqlite_master where type in ('table','view') and name not like 'sqlite_%'"):

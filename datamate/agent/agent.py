@@ -323,7 +323,7 @@ class Agent(Strategy):
         finally:
             await self.kernel().close_session(sid)
         meta = {'style': style, 'temp': temp, 'steps': len(cells), 'rechecked': warned, 'outputs': outputs[-10:]}
-        program = '\n# ----- bước -----\n'.join(cells)[-12000:]
+        program = '\n# ----- bước -----\n'.join(cells)        # v3.4.0: không cắt (BTC: log đúng code đã chạy)
         if status != 'ok' or final is None:
             return self.cand(i, program=program, status=status if status in ('error', 'empty', 'timeout') else 'error',
                              error=err, elapsed=time.time() - t0, tokens=tokens, meta=meta)

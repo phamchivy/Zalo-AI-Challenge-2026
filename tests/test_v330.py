@@ -51,4 +51,5 @@ def test_conflict_abstains(mini_split, tmp_path):
 def test_qa_configs_have_canon_and_10_steps():
     for f in ('qa_glm', 'qa_qwen14b', 'qa_qwen14b_or'):
         c = load_config(str(ROOT / 'configs' / f'{f}.yaml'))
-        assert c.canon_q.enabled and c.strategy('agent').options['max_steps'] == 10
+        # v3.4.0: bản nộp Qwen tắt chuẩn hoá (chưa đo với Qwen)
+        assert c.canon_q.enabled == (f != 'qa_qwen14b') and c.strategy('agent').options['max_steps'] == 10

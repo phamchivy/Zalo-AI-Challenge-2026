@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-# Đọc test set ở /data, ghi /result/submission.jsonl + /result/logs/. Chạy offline hoàn toàn.
-#   docker run --gpus all -v /path/test:/data -v /path/out:/result datamate:v1
+# v3.4.0 — /code/predict.sh (không tham số): đọc /data (chỉ đọc), ghi /result/submission.jsonl (ghi ngay từng câu)
+# + /result/logs/<id>.json (1 dòng JSON / câu: id, answer, elapsed_ms, thinking, code, output). Offline hoàn toàn.
+# Lệnh chấm của BTC:
+#   docker run --rm --gpus '"device=0,1"' --network none --shm-size=16g --entrypoint bash \
+#     -v /path/test:/data:ro -v /path/out:/result zaic2026_datamate_beyond_models:final /code/predict.sh
 set -uo pipefail
 export DATAMATE_T0=${DATAMATE_T0:-$(date +%s)}      # mốc 6 giờ tính từ lúc container khởi động (gồm nạp mô hình)
 DATA=${DATA:-/data}
 OUT=${OUT:-/result}
-CONFIG=${CONFIG:-/app/configs/qa_qwen14b.yaml}
+CONFIG=${CONFIG:-/code/src/configs/qa_qwen14b.yaml}
 MODE=${VLLM_MODE:-tp}                 # tp: 1 bản chia 2 GPU (chắc chắn ≤15B) | dp: mỗi GPU 1 bản
 QUANT=${QUANT:-fp8}
-MODEL_DIR=${DATAMATE_MODEL_DIR:-/models/llm}
+MODEL_DIR=${DATAMATE_MODEL_DIR:-/code/models/qwen3-14b-fp8}
 SERVED=${DATAMATE_LLM_MODEL:-qwen3-14b}
 MAX_LEN=${MAX_MODEL_LEN:-32768}
 GPU_UTIL=${GPU_UTIL:-0.90}
-mkdir -p "$OUT/logs" /tmp/vllm_logs
-cd /app
+mkdir -p "$OUT/logs" "$OUT/system" /tmp/vllm_logs
+cd /code/src
+export PYTHONPATH=/code/src
 
 NGPU=$(nvidia-smi -L 2>/dev/null | wc -l)
 URLS=""
@@ -63,7 +67,7 @@ fi
 
 python -m datamate.runtime.main predict --split "$DATA" --out "$OUT" --config "$CONFIG"
 RC=$?
-cp /tmp/vllm_logs/*.log "$OUT/logs/" 2>/dev/null || true
+cp /tmp/vllm_logs/*.log "$OUT/system/" 2>/dev/null || true      # log vLLM tách khỏi logs/ (logs/ chỉ 1 bản ghi / câu)
 for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
 # luôn có file nộp (câu thiếu = abstain)
 if [ ! -s "$OUT/submission.jsonl" ]; then

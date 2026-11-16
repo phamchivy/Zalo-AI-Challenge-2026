@@ -30,7 +30,7 @@ mapping_llm:
   retries: 3
   min_conf: 0.8
 canon_q:
-  enabled: true                  # v3.3.0
+  enabled: false                 # v3.4.0: TẮT cho bản nộp — chuẩn hoá câu hỏi chỉ đã đo với GLM, chưa đo với Qwen3-14B
   concurrency: 64
   max_tokens: 512
   temperature: 0.0
